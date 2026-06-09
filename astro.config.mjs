@@ -1,11 +1,11 @@
 // @ts-check
 import { defineConfig } from "astro/config";
-import vercel from "@astrojs/vercel";
+import netlify from "@astrojs/netlify";
 import clerk from "@clerk/astro";
 
 // https://astro.build/config
 export default defineConfig({
   output: "server",
-  adapter: vercel(),
+  adapter: netlify(),
   integrations: [clerk()],
 });

@@ -70,9 +70,11 @@ rules can stay locked down (no client SDK access). Search is a substring filter
 in `src/lib/drivers.ts` — fine for small scale; swap for Algolia/Typesense or
 geo-queries if listings grow large.
 
-## Deploy to Vercel
+## Deploy to Netlify
 
-1. Push to a Git repo and import it in Vercel (the `@astrojs/vercel` adapter is
-   already configured).
-2. Add the same `.env` variables in **Vercel → Settings → Environment Variables**.
-3. Set Clerk's allowed origins / production keys for your Vercel domain.
+1. Push to a Git repo and import it in Netlify. The `@astrojs/netlify` adapter
+   and `netlify.toml` (build command, publish dir, Node 20) are already set up,
+   so no manual build config is needed.
+2. Add the same `.env` variables in **Netlify → Site configuration →
+   Environment variables** (Clerk + Firebase). Without them, pages return 500.
+3. Set Clerk's allowed origins / production keys for your Netlify domain.
