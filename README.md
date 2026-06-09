@@ -73,7 +73,7 @@ geo-queries if listings grow large.
 ## Deploy to Netlify
 
 1. Push to a Git repo and import it in Netlify. The `@astrojs/netlify` adapter
-   and `netlify.toml` (build command, publish dir, Node 20) are already set up,
+   and `netlify.toml` (build command, publish dir, Node 22.12) are already set up,
    so no manual build config is needed.
 2. Add the same `.env` variables in **Netlify → Site configuration →
    Environment variables** (Clerk + Firebase). Without them, pages return 500.
