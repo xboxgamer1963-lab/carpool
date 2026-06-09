@@ -1,0 +1,18 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { SignUp } from "@clerk/astro/components";
+---
+
+<Layout title="Sign up — Carpool">
+  <div class="auth">
+    <SignUp signInUrl="/sign-in" />
+  </div>
+</Layout>
+
+<style>
+  .auth {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+  }
+</style>

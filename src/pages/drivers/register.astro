@@ -1,0 +1,77 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import DriverForm from "../../components/DriverForm.astro";
+
+const url = new URL(Astro.request.url);
+const error = url.searchParams.get("error");
+
+// Prefill the name from the signed-in Clerk user when available.
+const user = await Astro.locals.currentUser?.();
+const fullName = user
+  ? [user.firstName, user.lastName].filter(Boolean).join(" ")
+  : "";
+---
+
+<Layout title="Offer a ride — Carpool">
+  <div class="wrap">
+    <header class="page-head">
+      <span class="eyebrow">For drivers</span>
+      <h1>Offer a ride</h1>
+      <p class="muted">
+        Add your car, route and timings. Riders will find you and reach out by
+        phone or WhatsApp.
+      </p>
+    </header>
+
+    {
+      error && (
+        <div class="banner error">
+          <strong>Couldn't publish.</strong> {error}
+        </div>
+      )
+    }
+
+    <DriverForm
+      action="/api/drivers/create"
+      submitLabel="Publish ride"
+      defaultName={fullName}
+    />
+  </div>
+</Layout>
+
+<style>
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .page-head {
+    margin-bottom: 1.75rem;
+  }
+  .eyebrow {
+    display: inline-block;
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    background: var(--green-soft);
+    padding: 0.3rem 0.65rem;
+    border-radius: var(--radius-pill);
+    margin-bottom: 0.85rem;
+  }
+  .page-head h1 {
+    font-size: clamp(2rem, 4.5vw, 2.7rem);
+  }
+  .page-head .muted {
+    margin-top: 0.5rem;
+    max-width: 34rem;
+  }
+  .banner.error {
+    background: linear-gradient(var(--danger-soft), var(--surface));
+    border: 1px solid var(--danger-soft);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+    color: var(--ink);
+  }
+</style>

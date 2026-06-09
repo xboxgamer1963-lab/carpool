@@ -1,0 +1,23 @@
+{
+  "name": "carpool",
+  "version": "1.0.0",
+  "description": "Carpool marketplace connecting car owners with riders",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@astrojs/vercel": "^10.0.8",
+    "@clerk/astro": "^3.3.3",
+    "@types/leaflet": "^1.9.21",
+    "astro": "^6.4.5",
+    "firebase-admin": "^14.0.0",
+    "leaflet": "^1.9.4"
+  }
+}

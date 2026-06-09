@@ -1,0 +1,247 @@
+---
+import MapPicker from "./MapPicker.astro";
+import type { Driver } from "../lib/drivers";
+
+interface Props {
+  /** Existing listing when editing; omitted when creating. */
+  driver?: Driver;
+  /** Form POST target. */
+  action: string;
+  /** Submit button text. */
+  submitLabel: string;
+  /** Prefill name for new listings (e.g. the Clerk user's name). */
+  defaultName?: string;
+}
+const { driver, action, submitLabel, defaultName = "" } = Astro.props;
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const selectedDays = driver?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
+const v = {
+  name: driver?.name ?? defaultName,
+  phone: driver?.phone ?? "",
+  carMake: driver?.carMake ?? "",
+  carModel: driver?.carModel ?? "",
+  carColor: driver?.carColor ?? "",
+  seats: driver?.seats ?? 3,
+  fromLocation: driver?.fromLocation ?? "",
+  toLocation: driver?.toLocation ?? "",
+  stops: driver?.stops?.join(", ") ?? "",
+  departTime: driver?.departTime || "08:00",
+  returnTime: driver?.returnTime || "17:30",
+  fare: driver?.fare ?? "",
+  notes: driver?.notes ?? "",
+};
+---
+
+<form class="form" method="POST" action={action}>
+  {driver && <input type="hidden" name="id" value={driver.id} />}
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">1</span><h2>About you</h2></div>
+    <div class="row">
+      <div class="field">
+        <label for="name">Your name</label>
+        <input id="name" name="name" required value={v.name} />
+      </div>
+      <div class="field">
+        <label for="phone">Phone (with country code)</label>
+        <input id="phone" name="phone" required value={v.phone} placeholder="+92 300 1234567" />
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">2</span><h2>Your car</h2></div>
+    <div class="row">
+      <div class="field">
+        <label for="carMake">Make</label>
+        <input id="carMake" name="carMake" required value={v.carMake} placeholder="Toyota" />
+      </div>
+      <div class="field">
+        <label for="carModel">Model</label>
+        <input id="carModel" name="carModel" required value={v.carModel} placeholder="Corolla" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="carColor">Colour</label>
+        <input id="carColor" name="carColor" value={v.carColor} placeholder="Silver" />
+      </div>
+      <div class="field">
+        <label for="seats">Seats available</label>
+        <input id="seats" name="seats" type="number" min="1" max="8" value={v.seats} required />
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">3</span><h2>Route &amp; timings</h2></div>
+
+    <div class="field">
+      <label>Pin your route on the map</label>
+      <MapPicker
+        fromLat={driver?.fromLat ?? null}
+        fromLng={driver?.fromLng ?? null}
+        toLat={driver?.toLat ?? null}
+        toLng={driver?.toLng ?? null}
+      />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="fromLocation">Start / home area</label>
+        <input id="fromLocation" name="fromLocation" required value={v.fromLocation} placeholder="Gulshan" />
+      </div>
+      <div class="field">
+        <label for="toLocation">Destination / drop-off</label>
+        <input id="toLocation" name="toLocation" required value={v.toLocation} placeholder="Downtown office" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="stops">Stops along the way (comma separated)</label>
+      <input id="stops" name="stops" value={v.stops} placeholder="Clifton, Saddar" />
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="departTime">Departure time</label>
+        <input id="departTime" name="departTime" type="time" value={v.departTime} required />
+      </div>
+      <div class="field">
+        <label for="returnTime">Return time</label>
+        <input id="returnTime" name="returnTime" type="time" value={v.returnTime} />
+      </div>
+    </div>
+    <div class="field">
+      <label>Days</label>
+      <div class="day-grid">
+        {
+          DAYS.map((day) => (
+            <label class="day">
+              <input type="checkbox" name="days" value={day} checked={selectedDays.includes(day)} />
+              <span>{day}</span>
+            </label>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">4</span><h2>Details</h2></div>
+    <div class="field">
+      <label for="fare">Fare / contribution</label>
+      <input id="fare" name="fare" value={v.fare} placeholder="Rs 5000 / month, or Negotiable" />
+    </div>
+    <div class="field">
+      <label for="notes">Notes (optional)</label>
+      <textarea id="notes" name="notes" rows="3" placeholder="AC car, non-smoking, flexible on pickup point…">{v.notes}</textarea>
+    </div>
+  </section>
+
+  <div class="submit-bar">
+    <button type="submit" class="btn btn-primary">{submitLabel}</button>
+    <a href="/drivers/mine" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+
+<style>
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .section {
+    padding: 1.4rem 1.5rem;
+  }
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.1rem;
+  }
+  .section-title h2 {
+    font-size: 1.15rem;
+  }
+  .step-dot {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green-ink);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .field {
+    flex: 1 1 13rem;
+    margin-bottom: 1rem;
+  }
+  .row .field {
+    margin-bottom: 0;
+  }
+  .section .field:last-child,
+  .section .row:last-child {
+    margin-bottom: 0;
+  }
+  .day-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .day {
+    margin: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .day input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .day span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3rem;
+    padding: 0.5rem 0.7rem;
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .day input:checked + span {
+    background: linear-gradient(160deg, var(--green) 25%, var(--green-dk));
+    border-color: var(--green-dk);
+    color: #fff;
+  }
+  .day input:focus-visible + span {
+    box-shadow: 0 0 0 3px rgba(22, 112, 74, 0.25);
+  }
+  .submit-bar {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.25rem;
+  }
+  @media (max-width: 480px) {
+    .submit-bar .btn {
+      flex: 1;
+    }
+  }
+</style>

@@ -1,0 +1,383 @@
+---
+// Interactive pickup/drop-off picker. Expects the surrounding <form> to contain
+// text inputs with ids `fromLocation` and `toLocation`; it keeps them in sync and
+// emits hidden lat/lng inputs that the create/update endpoints read.
+interface Props {
+  fromLat?: number | null;
+  fromLng?: number | null;
+  toLat?: number | null;
+  toLng?: number | null;
+}
+const { fromLat, fromLng, toLat, toLng } = Astro.props;
+---
+
+<div class="picker">
+  <div class="picker-bar">
+    <div class="mode" role="group" aria-label="Choose which point to place">
+      <button type="button" class="mode-btn is-on" data-mode="from">
+        <i class="d start"></i> Pickup
+      </button>
+      <button type="button" class="mode-btn" data-mode="to">
+        <i class="d end"></i> Drop-off
+      </button>
+    </div>
+    <div class="search">
+      <input
+        type="text"
+        id="geo-search"
+        placeholder="Search an address or area…"
+        autocomplete="off"
+      />
+      <button type="button" class="btn btn-ghost btn-sm" id="geo-go">Find</button>
+      <button type="button" class="btn btn-ghost btn-sm icon-btn" id="geo-me" title="Use my current location">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2"></circle>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-linecap="round"></path>
+        </svg>
+        <span class="lbl">My location</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="pick-canvas" id="pick-map"></div>
+  <p class="pick-hint muted">
+    Click the map or drag a pin to set the point you're placing. Coordinates are
+    saved automatically.
+  </p>
+
+  <input type="hidden" name="fromLat" id="fromLat" value={fromLat ?? ""} />
+  <input type="hidden" name="fromLng" id="fromLng" value={fromLng ?? ""} />
+  <input type="hidden" name="toLat" id="toLat" value={toLat ?? ""} />
+  <input type="hidden" name="toLng" id="toLng" value={toLng ?? ""} />
+</div>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+
+<script>
+  import L from "leaflet";
+
+  const el = document.getElementById("pick-map");
+  if (el) {
+    const $ = (id: string) => document.getElementById(id) as HTMLInputElement | null;
+    const fromLat = $("fromLat")!;
+    const fromLng = $("fromLng")!;
+    const toLat = $("toLat")!;
+    const toLng = $("toLng")!;
+    const fromName = $("fromLocation");
+    const toName = $("toLocation");
+
+    let mode: "from" | "to" = "from";
+
+    const map = L.map(el, { scrollWheelZoom: false });
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      {
+        attribution:
+          '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 19,
+      }
+    ).addTo(map);
+
+    const icon = (cls: string) =>
+      L.divIcon({
+        className: "",
+        html: `<span class="pin-marker ${cls}"></span>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 16],
+      });
+
+    const fromMarker = L.marker([0, 0], {
+      icon: icon("start"),
+      draggable: true,
+      opacity: 0,
+    }).addTo(map);
+    const toMarker = L.marker([0, 0], {
+      icon: icon("end"),
+      draggable: true,
+      opacity: 0,
+    }).addTo(map);
+    const link = L.polyline([], {
+      color: "#16704a",
+      weight: 2.5,
+      opacity: 0.4,
+      dashArray: "2 8",
+    }).addTo(map);
+
+    function setPoint(
+      which: "from" | "to",
+      lat: number,
+      lng: number,
+      silent = false
+    ) {
+      const m = which === "from" ? fromMarker : toMarker;
+      m.setLatLng([lat, lng]);
+      m.setOpacity(1);
+      if (which === "from") {
+        fromLat.value = lat.toFixed(6);
+        fromLng.value = lng.toFixed(6);
+      } else {
+        toLat.value = lat.toFixed(6);
+        toLng.value = lng.toFixed(6);
+      }
+      redrawLink();
+      // Skip reverse geocoding when seeding existing data, so we don't clobber
+      // the names the driver already saved.
+      if (!silent) reverseGeocode(which, lat, lng);
+    }
+
+    function redrawLink() {
+      const a = fromMarker.getLatLng();
+      const b = toMarker.getLatLng();
+      if (fromLat.value && toLat.value) {
+        link.setLatLngs([a, b]);
+      } else {
+        link.setLatLngs([]);
+      }
+    }
+
+    // Mode toggle
+    document.querySelectorAll<HTMLButtonElement>(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        mode = btn.dataset.mode as "from" | "to";
+        document
+          .querySelectorAll(".mode-btn")
+          .forEach((b) => b.classList.toggle("is-on", b === btn));
+      });
+    });
+
+    map.on("click", (e: L.LeafletMouseEvent) => {
+      setPoint(mode, e.latlng.lat, e.latlng.lng);
+      // After placing pickup, switch to drop-off for a natural flow.
+      if (mode === "from" && !toLat.value) {
+        (document.querySelector('.mode-btn[data-mode="to"]') as HTMLButtonElement)
+          ?.click();
+      }
+    });
+
+    fromMarker.on("dragend", () => {
+      const p = fromMarker.getLatLng();
+      setPoint("from", p.lat, p.lng);
+    });
+    toMarker.on("dragend", () => {
+      const p = toMarker.getLatLng();
+      setPoint("to", p.lat, p.lng);
+    });
+
+    // ---- Geocoding (Nominatim) -----------------------------------------
+    async function geocode(q: string) {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const data = await res.json();
+      return data[0]
+        ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+        : null;
+    }
+
+    let reverseTimer: number | undefined;
+    function reverseGeocode(which: "from" | "to", lat: number, lng: number) {
+      const target = which === "from" ? fromName : toName;
+      if (!target) return;
+      // Don't clobber a name the user typed themselves.
+      window.clearTimeout(reverseTimer);
+      reverseTimer = window.setTimeout(async () => {
+        try {
+          const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=14&lat=${lat}&lon=${lng}`;
+          const res = await fetch(url, { headers: { Accept: "application/json" } });
+          const d = await res.json();
+          const a = d.address || {};
+          const label =
+            a.suburb || a.neighbourhood || a.town || a.city_district ||
+            a.village || a.city || d.name || "";
+          if (label && !target.value.trim()) target.value = label;
+        } catch {
+          /* best-effort */
+        }
+      }, 400);
+    }
+
+    async function runSearch() {
+      const input = $("geo-search");
+      const q = input?.value.trim();
+      if (!q) return;
+      const hit = await geocode(q);
+      if (hit) {
+        map.setView([hit.lat, hit.lng], 14);
+        setPoint(mode, hit.lat, hit.lng);
+      } else {
+        input?.classList.add("not-found");
+        setTimeout(() => input?.classList.remove("not-found"), 1200);
+      }
+    }
+    document.getElementById("geo-go")?.addEventListener("click", runSearch);
+    $("geo-search")?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") {
+        e.preventDefault();
+        runSearch();
+      }
+    });
+
+    // Drop the active pin at the driver's current location.
+    document.getElementById("geo-me")?.addEventListener("click", () => {
+      if (!navigator.geolocation) return;
+      const btn = document.getElementById("geo-me") as HTMLButtonElement;
+      btn.disabled = true;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          map.setView([latitude, longitude], 14);
+          setPoint(mode, latitude, longitude);
+          btn.disabled = false;
+        },
+        () => {
+          btn.disabled = false;
+        },
+        { enableHighAccuracy: true, timeout: 7000 }
+      );
+    });
+
+    // ---- Seed existing pins (edit mode) --------------------------------
+    const seedFrom =
+      fromLat.value && fromLng.value
+        ? ([parseFloat(fromLat.value), parseFloat(fromLng.value)] as [
+            number,
+            number,
+          ])
+        : null;
+    const seedTo =
+      toLat.value && toLng.value
+        ? ([parseFloat(toLat.value), parseFloat(toLng.value)] as [
+            number,
+            number,
+          ])
+        : null;
+    if (seedFrom) setPoint("from", seedFrom[0], seedFrom[1], true);
+    if (seedTo) setPoint("to", seedTo[0], seedTo[1], true);
+
+    // ---- Initial view --------------------------------------------------
+    if (seedFrom || seedTo) {
+      const pts = [seedFrom, seedTo].filter(Boolean) as [number, number][];
+      if (pts.length > 1) map.fitBounds(pts, { padding: [60, 60], maxZoom: 14 });
+      else map.setView(pts[0], 14);
+    } else {
+      // No existing data: default city, then try to center on the driver.
+      map.setView([24.86, 67.0], 11);
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 12),
+          () => {},
+          { timeout: 4000 }
+        );
+      }
+    }
+
+    // Leaflet needs a size recalculation once laid out.
+    setTimeout(() => map.invalidateSize(), 200);
+  }
+</script>
+
+<style>
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .picker-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mode {
+    display: inline-flex;
+    background: var(--paper);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-pill);
+    padding: 3px;
+  }
+  .mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--ink-2);
+    background: transparent;
+    border: none;
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mode-btn.is-on {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-sm);
+  }
+  .mode-btn i.d {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .mode-btn i.start {
+    background: var(--green);
+  }
+  .mode-btn i.end {
+    background: var(--amber);
+  }
+  .search {
+    display: flex;
+    gap: 0.4rem;
+    flex: 1 1 16rem;
+    min-width: 12rem;
+  }
+  .search input {
+    flex: 1;
+  }
+  .icon-btn {
+    flex-shrink: 0;
+    gap: 0.35rem;
+  }
+  @media (max-width: 600px) {
+    .icon-btn .lbl {
+      display: none;
+    }
+  }
+  .search input.not-found {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-soft);
+  }
+  .pick-canvas {
+    height: 340px;
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-2);
+    z-index: 0;
+  }
+  .pick-hint {
+    margin: 0;
+    font-size: 0.82rem;
+  }
+
+  :global(.pin-marker) {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2.5px solid #fff;
+    box-shadow: 0 2px 6px rgba(20, 30, 20, 0.4);
+  }
+  :global(.pin-marker.start) {
+    background: var(--green);
+  }
+  :global(.pin-marker.end) {
+    background: var(--amber);
+  }
+</style>

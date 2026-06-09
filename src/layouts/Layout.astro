@@ -1,0 +1,414 @@
+---
+import { Show, UserButton, SignInButton } from "@clerk/astro/components";
+
+interface Props {
+  title?: string;
+}
+const { title = "Carpool" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Find a carpool or offer rides on your daily commute. Drive together, spend less."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>{title}</title>
+
+    <!-- Google tag (gtag.js) -->
+    <script
+      is:inline
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-G9HD5FF7JD"></script>
+    <script is:inline>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      gtag("config", "G-G9HD5FF7JD");
+    </script>
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="/" class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+              <path
+                d="M4 15h16M6 15l1.5-5.5A2 2 0 0 1 9.4 8h5.2a2 2 0 0 1 1.9 1.5L18 15"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"></path>
+              <circle cx="8" cy="17.5" r="1.6" fill="currentColor"></circle>
+              <circle cx="16" cy="17.5" r="1.6" fill="currentColor"></circle>
+            </svg>
+          </span>
+          <span>Carpool</span>
+        </a>
+
+        <nav class="nav">
+          <a href="/drivers" class="nav-link">Browse rides</a>
+          <Show when="signed-in">
+            <a href="/drivers/mine" class="nav-link">My rides</a>
+            <a href="/drivers/register" class="btn btn-primary btn-sm">
+              Offer a ride
+            </a>
+            <span class="avatar-wrap"><UserButton /></span>
+          </Show>
+          <Show when="signed-out">
+            <SignInButton mode="modal" class="btn btn-primary btn-sm">
+              Sign in
+            </SignInButton>
+          </Show>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="footer-brand">Carpool</span>
+        <span class="muted">Drive together. Spend less. Arrive happier.</span>
+      </div>
+    </footer>
+
+    <style is:global>
+      :root {
+        /* Warm transit editorial palette */
+        --paper: #f6f1e7;
+        --paper-2: #fffdf8;
+        --surface: #fffefb;
+        --ink: #18160f;
+        --ink-2: #5d574a;
+        --ink-3: #8a8273;
+        --line: #e7dfce;
+        --line-2: #d9cfb8;
+
+        --green: #16704a;
+        --green-dk: #0f5236;
+        --green-soft: #e7f0e8;
+        --green-ink: #0c4a30;
+
+        --amber: #d8842a;
+        --amber-soft: #fbeed8;
+
+        --danger: #b23b2e;
+        --danger-soft: #fbe7e3;
+
+        --radius: 16px;
+        --radius-sm: 11px;
+        --radius-pill: 999px;
+
+        --shadow-sm: 0 1px 2px rgba(40, 32, 16, 0.05);
+        --shadow:
+          0 1px 2px rgba(40, 32, 16, 0.04), 0 10px 30px -12px rgba(40, 32, 16, 0.18);
+        --shadow-lg: 0 24px 60px -24px rgba(30, 50, 35, 0.35);
+
+        --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+        --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
+          sans-serif;
+
+        --maxw: 1080px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        font-family: var(--font-body);
+        color: var(--ink);
+        line-height: 1.55;
+        background-color: var(--paper);
+        background-image:
+          radial-gradient(
+            46rem 30rem at 8% -8%,
+            rgba(22, 112, 74, 0.1),
+            transparent 60%
+          ),
+          radial-gradient(
+            40rem 28rem at 105% 4%,
+            rgba(216, 132, 42, 0.12),
+            transparent 55%
+          );
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      /* Fine grain overlay for paper texture */
+      .grain {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        opacity: 0.4;
+        mix-blend-mode: multiply;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E");
+      }
+
+      main {
+        position: relative;
+        z-index: 2;
+        flex: 1;
+        width: 100%;
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+
+      a {
+        color: var(--green);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-weight: 700;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        margin: 0;
+      }
+
+      /* ---------- Header ---------- */
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: color-mix(in srgb, var(--paper) 82%, transparent);
+        backdrop-filter: saturate(150%) blur(10px);
+        border-bottom: 1px solid var(--line);
+      }
+      .header-inner {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0.7rem 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: 1.2rem;
+        letter-spacing: -0.03em;
+        color: var(--ink);
+      }
+      .brand:hover {
+        text-decoration: none;
+      }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        color: #fff;
+        background: linear-gradient(150deg, var(--green) 30%, var(--green-dk));
+        box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 1.1rem;
+      }
+      .nav-link {
+        color: var(--ink-2);
+        font-weight: 600;
+        font-size: 0.94rem;
+      }
+      .nav-link:hover {
+        color: var(--ink);
+        text-decoration: none;
+      }
+      .avatar-wrap {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      /* ---------- Buttons ---------- */
+      .btn {
+        --btn-bg: var(--ink);
+        --btn-fg: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.97rem;
+        line-height: 1;
+        padding: 0.72rem 1.25rem;
+        border-radius: var(--radius-pill);
+        border: 1px solid transparent;
+        background: var(--btn-bg);
+        color: var(--btn-fg);
+        cursor: pointer;
+        transition:
+          transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
+          box-shadow 0.16s ease,
+          background 0.16s ease,
+          border-color 0.16s ease;
+      }
+      .btn:hover {
+        text-decoration: none;
+        transform: translateY(-1px);
+      }
+      .btn:active {
+        transform: translateY(0);
+      }
+      .btn-sm {
+        padding: 0.55rem 1rem;
+        font-size: 0.9rem;
+      }
+      .btn-primary {
+        --btn-bg: linear-gradient(160deg, var(--green) 25%, var(--green-dk));
+        --btn-fg: #fff;
+        box-shadow: 0 8px 20px -10px rgba(15, 82, 54, 0.7);
+      }
+      .btn-primary:hover {
+        box-shadow: 0 12px 26px -10px rgba(15, 82, 54, 0.75);
+      }
+      .btn-ghost {
+        --btn-bg: var(--surface);
+        --btn-fg: var(--ink);
+        border-color: var(--line-2);
+        box-shadow: var(--shadow-sm);
+      }
+      .btn-ghost:hover {
+        border-color: var(--ink);
+      }
+      .btn-success {
+        --btn-bg: #1ca15f;
+        --btn-fg: #fff;
+        box-shadow: 0 8px 20px -10px rgba(28, 161, 95, 0.7);
+      }
+      .btn-block {
+        width: 100%;
+      }
+
+      /* ---------- Surfaces ---------- */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 1.4rem;
+      }
+
+      /* ---------- Forms ---------- */
+      input,
+      select,
+      textarea {
+        font: inherit;
+        width: 100%;
+        padding: 0.7rem 0.85rem;
+        color: var(--ink);
+        background: var(--paper-2);
+        border: 1px solid var(--line-2);
+        border-radius: var(--radius-sm);
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease,
+          background 0.15s ease;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--ink-3);
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        outline: none;
+        background: #fff;
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px rgba(22, 112, 74, 0.16);
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        font-size: 0.84rem;
+        letter-spacing: 0.01em;
+        color: var(--ink-2);
+        margin-bottom: 0.4rem;
+      }
+
+      .muted {
+        color: var(--ink-2);
+      }
+
+      /* ---------- Footer ---------- */
+      .site-footer {
+        position: relative;
+        z-index: 2;
+        border-top: 1px solid var(--line);
+        background: color-mix(in srgb, var(--paper) 70%, transparent);
+      }
+      .footer-inner {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 1.6rem 1.25rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem 1rem;
+        font-size: 0.92rem;
+      }
+      .footer-brand {
+        font-family: var(--font-display);
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      /* Clerk component theming hooks */
+      .cl-userButtonAvatarBox {
+        width: 34px !important;
+        height: 34px !important;
+      }
+
+      @media (max-width: 560px) {
+        .nav {
+          gap: 0.7rem;
+        }
+        .nav-link {
+          display: none;
+        }
+      }
+    </style>
+  </body>
+</html>

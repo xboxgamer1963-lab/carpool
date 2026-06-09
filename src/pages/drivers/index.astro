@@ -1,0 +1,417 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import DriverCard from "../../components/DriverCard.astro";
+import RouteMap from "../../components/RouteMap.astro";
+import { searchDrivers, type Driver } from "../../lib/drivers";
+
+const url = new URL(Astro.request.url);
+const from = url.searchParams.get("from")?.trim() ?? "";
+const to = url.searchParams.get("to")?.trim() ?? "";
+const hasQuery = Boolean(from || to);
+
+let drivers: Driver[] = [];
+let error: string | null = null;
+try {
+  drivers = await searchDrivers(from, to);
+} catch (e) {
+  error = e instanceof Error ? e.message : "Could not load rides.";
+}
+---
+
+<Layout title="Available rides — Carpool">
+  <header class="page-head">
+    <div>
+      <h1>{hasQuery ? "Matching rides" : "Available rides"}</h1>
+      <p class="muted sub">
+        {
+          error
+            ? "We couldn't reach the listings."
+            : `${drivers.length} ${drivers.length === 1 ? "driver" : "drivers"} ${hasQuery ? "match your route" : "currently offering a carpool"}`
+        }
+      </p>
+    </div>
+  </header>
+
+  <form class="filter card" method="GET" action="/drivers">
+    <div class="filter-field">
+      <label for="from">From</label>
+      <div class="ic">
+        <span class="pin start"></span>
+        <input id="from" name="from" value={from} placeholder="Home area" />
+      </div>
+    </div>
+    <div class="filter-field">
+      <label for="to">To</label>
+      <div class="ic">
+        <span class="pin end"></span>
+        <input id="to" name="to" value={to} placeholder="Drop-off area" />
+      </div>
+    </div>
+    <div class="filter-actions">
+      <button type="submit" class="btn btn-primary">Search</button>
+      {hasQuery && <a href="/drivers" class="btn btn-ghost">Clear</a>}
+    </div>
+  </form>
+
+  {
+    error ? (
+      <div class="card notice error">
+        <h3>Couldn't load rides</h3>
+        <p class="muted">{error}</p>
+      </div>
+    ) : drivers.length === 0 ? (
+      <div class="card notice">
+        <span class="notice-emoji" aria-hidden="true">🛣️</span>
+        <h3>No rides found{hasQuery ? " for that route" : " yet"}</h3>
+        <p class="muted">
+          Try a broader search, or{" "}
+          <a href="/drivers/register">offer a ride</a> yourself.
+        </p>
+      </div>
+    ) : (
+      <>
+        <div class="near-bar" id="near-bar" data-state="idle">
+          <span class="nb-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11Z" stroke-linejoin="round"></path>
+              <circle cx="12" cy="10" r="2.4"></circle>
+            </svg>
+          </span>
+          <span class="nb-text">
+            <strong>Find rides near you</strong>
+            <span class="muted nb-sub">Sort drivers by how close their pickup is to you.</span>
+          </span>
+          <button type="button" id="near-enable" class="btn btn-primary btn-sm">
+            Use my location
+          </button>
+          <button type="button" id="near-clear" class="btn btn-ghost btn-sm" hidden>
+            Clear
+          </button>
+        </div>
+
+        <RouteMap drivers={drivers} />
+
+        <div class="grid" id="ride-grid">
+          {drivers.map((d) => (
+            <div
+              class="ride-anchor"
+              id={`ride-${d.id}`}
+              data-id={d.id}
+              data-lat={d.fromLat ?? ""}
+              data-lng={d.fromLng ?? ""}
+            >
+              <span class="distance" data-distance hidden></span>
+              <DriverCard driver={d} />
+            </div>
+          ))}
+        </div>
+      </>
+    )
+  }
+</Layout>
+
+<script>
+  // Proximity: ask for the visitor's location and sort rides by how close each
+  // driver's pickup point is. Reorders the cards and tells the map to drop a
+  // "you are here" marker. Coordinates may also arrive via ?lat&lng (e.g. when
+  // the visitor enabled location on the landing page).
+  const grid = document.getElementById("ride-grid");
+  const bar = document.getElementById("near-bar");
+  const enableBtn = document.getElementById("near-enable") as HTMLButtonElement | null;
+  const clearBtn = document.getElementById("near-clear") as HTMLButtonElement | null;
+  const headSub = document.querySelector(".page-head .sub");
+
+  if (grid && bar) {
+    const anchors = Array.from(
+      grid.querySelectorAll<HTMLElement>(".ride-anchor")
+    );
+    const originalOrder = anchors.slice();
+    const barText = bar.querySelector(".nb-text strong") as HTMLElement;
+    const barSub = bar.querySelector(".nb-sub") as HTMLElement;
+
+    const haversine = (
+      lat1: number,
+      lng1: number,
+      lat2: number,
+      lng2: number
+    ) => {
+      const R = 6371; // km
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLng = ((lng2 - lng1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) *
+          Math.cos((lat2 * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    };
+
+    const fmt = (km: number) =>
+      km < 1 ? `${Math.round(km * 1000)} m away` : `${km.toFixed(1)} km away`;
+
+    function applyLocation(lat: number, lng: number) {
+      bar.dataset.state = "on";
+      barText.textContent = "Showing rides nearest to you";
+      barSub.textContent = "Closest pickup points first.";
+      enableBtn?.setAttribute("hidden", "");
+      clearBtn?.removeAttribute("hidden");
+
+      const withDist = anchors.map((el) => {
+        const la = parseFloat(el.dataset.lat || "");
+        const ln = parseFloat(el.dataset.lng || "");
+        const badge = el.querySelector("[data-distance]") as HTMLElement;
+        let dist = Infinity;
+        if (Number.isFinite(la) && Number.isFinite(ln)) {
+          dist = haversine(lat, lng, la, ln);
+          badge.textContent = fmt(dist);
+          badge.hidden = false;
+        } else {
+          badge.hidden = true;
+        }
+        return { el, dist };
+      });
+
+      withDist.sort((a, b) => a.dist - b.dist);
+      withDist.forEach(({ el }) => grid!.appendChild(el));
+
+      if (headSub) {
+        const n = withDist.filter((d) => d.dist !== Infinity).length;
+        headSub.textContent = `${n} ${n === 1 ? "ride" : "rides"} sorted by distance from you`;
+      }
+
+      // Let the map drop a user marker and recenter.
+      window.dispatchEvent(
+        new CustomEvent("carpool:userlocation", { detail: { lat, lng } })
+      );
+    }
+
+    function clearLocation() {
+      bar.dataset.state = "idle";
+      barText.textContent = "Find rides near you";
+      barSub.textContent =
+        "Sort drivers by how close their pickup is to you.";
+      enableBtn?.removeAttribute("hidden");
+      clearBtn?.setAttribute("hidden", "");
+      anchors.forEach((el) => {
+        const badge = el.querySelector("[data-distance]") as HTMLElement;
+        badge.hidden = true;
+      });
+      originalOrder.forEach((el) => grid!.appendChild(el));
+      window.dispatchEvent(new CustomEvent("carpool:userlocation:clear"));
+    }
+
+    function requestLocation() {
+      if (!navigator.geolocation) {
+        bar.dataset.state = "error";
+        barSub.textContent = "Location isn't available in this browser.";
+        return;
+      }
+      bar.dataset.state = "loading";
+      barSub.textContent = "Getting your location…";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => applyLocation(pos.coords.latitude, pos.coords.longitude),
+        () => {
+          bar.dataset.state = "error";
+          barText.textContent = "Find rides near you";
+          barSub.textContent =
+            "We couldn't get your location — you can still browse all rides.";
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    enableBtn?.addEventListener("click", requestLocation);
+    clearBtn?.addEventListener("click", clearLocation);
+
+    // If the landing page already captured coordinates, use them straight away.
+    const params = new URLSearchParams(location.search);
+    const qLat = parseFloat(params.get("lat") || "");
+    const qLng = parseFloat(params.get("lng") || "");
+    if (Number.isFinite(qLat) && Number.isFinite(qLng)) {
+      applyLocation(qLat, qLng);
+    } else {
+      // Otherwise ask on entry (browser shows its own permission prompt).
+      requestLocation();
+    }
+  }
+</script>
+
+<style>
+  .page-head {
+    margin-bottom: 1.4rem;
+  }
+  .page-head h1 {
+    font-size: clamp(1.9rem, 4vw, 2.5rem);
+  }
+  .page-head .sub {
+    margin-top: 0.35rem;
+  }
+
+  .filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.85rem;
+    margin-bottom: 1.75rem;
+    padding: 1rem 1.1rem;
+  }
+  .filter-field {
+    flex: 1 1 13rem;
+  }
+  .filter-field label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.3rem;
+  }
+  .ic {
+    position: relative;
+  }
+  .ic input {
+    padding-left: 1.7rem;
+  }
+  .pin {
+    position: absolute;
+    left: 0.7rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    z-index: 1;
+  }
+  .pin.start {
+    background: var(--green);
+  }
+  .pin.end {
+    background: var(--amber);
+  }
+  .filter-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .grid {
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  /* Near-you bar */
+  .near-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 1.25rem;
+    background:
+      radial-gradient(20rem 10rem at 0% 0%, var(--green-soft), transparent 70%),
+      var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .nb-icon {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    color: var(--green);
+    background: var(--green-soft);
+  }
+  .near-bar[data-state="on"] .nb-icon {
+    color: #fff;
+    background: linear-gradient(150deg, var(--green), var(--green-dk));
+  }
+  .nb-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+  }
+  .nb-text strong {
+    font-size: 0.98rem;
+  }
+  .nb-sub {
+    font-size: 0.84rem;
+  }
+  .near-bar .btn {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .near-bar #near-clear {
+    margin-left: 0;
+  }
+  .near-bar[data-state="loading"] #near-enable {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
+  .ride-anchor {
+    position: relative;
+    display: flex;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: box-shadow 0.2s ease;
+  }
+  .distance {
+    position: absolute;
+    top: -10px;
+    left: 14px;
+    z-index: 2;
+    background: linear-gradient(150deg, var(--green), var(--green-dk));
+    color: #fff;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 0.22rem 0.6rem;
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-sm);
+    border: 1.5px solid var(--surface);
+  }
+  .ride-anchor > :global(.driver) {
+    width: 100%;
+  }
+  .ride-anchor.is-active > :global(.driver) {
+    border-color: var(--green);
+    box-shadow:
+      0 0 0 2px var(--green),
+      var(--shadow-lg);
+  }
+
+  .notice {
+    text-align: center;
+    padding: 3rem 1.5rem;
+  }
+  .notice-emoji {
+    font-size: 2.2rem;
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  .notice h3 {
+    font-size: 1.3rem;
+  }
+  .notice p {
+    margin: 0.5rem 0 0;
+  }
+  .notice.error {
+    border-color: var(--danger-soft);
+    background: linear-gradient(var(--danger-soft), var(--surface) 60%);
+  }
+
+  @media (max-width: 560px) {
+    .filter-actions .btn {
+      flex: 1;
+    }
+    .near-bar {
+      flex-wrap: wrap;
+    }
+    .near-bar .btn {
+      margin-left: 0;
+      flex: 1;
+    }
+    .nb-text {
+      flex: 1 1 60%;
+    }
+  }
+</style>

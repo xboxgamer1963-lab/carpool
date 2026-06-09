@@ -1,0 +1,441 @@
+---
+import type { Driver } from "../lib/drivers";
+
+interface Props {
+  drivers: Driver[];
+}
+const { drivers } = Astro.props;
+
+// Only rides with coordinates can be plotted.
+const mapped = drivers
+  .filter((d) => d.fromLat != null && d.fromLng != null)
+  .map((d) => ({
+    id: d.id,
+    name: d.name,
+    car: [d.carColor, d.carMake, d.carModel].filter(Boolean).join(" "),
+    seats: d.seats,
+    from: d.fromLocation,
+    to: d.toLocation,
+    depart: d.departTime,
+    fare: d.fare,
+    fromLat: d.fromLat,
+    fromLng: d.fromLng,
+    toLat: d.toLat,
+    toLng: d.toLng,
+  }));
+
+const hiddenCount = drivers.length - mapped.length;
+---
+
+<div class="map-shell">
+  <div class="map-canvas" id="route-map" data-empty={mapped.length === 0}></div>
+  <div class="map-legend">
+    <span><i class="lg start"></i> Pickup</span>
+    <span><i class="lg end"></i> Drop-off</span>
+    <span class="muted hint">Tap a car to drive the route</span>
+  </div>
+  {
+    hiddenCount > 0 && (
+      <p class="map-note muted">
+        {hiddenCount} {hiddenCount === 1 ? "ride isn't" : "rides aren't"} pinned to
+        the map yet.
+      </p>
+    )
+  }
+</div>
+
+<script
+  type="application/json"
+  id="route-data"
+  set:html={JSON.stringify(mapped)}
+/>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+
+<script>
+  import L from "leaflet";
+
+  type Ride = {
+    id: string;
+    name: string;
+    car: string;
+    seats: number;
+    from: string;
+    to: string;
+    depart: string;
+    fare: string;
+    fromLat: number;
+    fromLng: number;
+    toLat: number | null;
+    toLng: number | null;
+  };
+
+  const el = document.getElementById("route-map");
+  const dataEl = document.getElementById("route-data");
+  if (el && dataEl) {
+    const rides: Ride[] = JSON.parse(dataEl.textContent || "[]");
+
+    const map = L.map(el, {
+      scrollWheelZoom: false,
+      zoomControl: true,
+      attributionControl: true,
+    });
+
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      {
+        attribution:
+          '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 19,
+      }
+    ).addTo(map);
+
+    // ---- icon factories -------------------------------------------------
+    const pin = (cls: string) =>
+      L.divIcon({
+        className: "",
+        html: `<span class="pin-marker ${cls}"></span>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+
+    const carIcon = () =>
+      L.divIcon({
+        className: "",
+        html: `<span class="car-marker">${CAR_SVG}</span>`,
+        iconSize: [40, 24],
+        iconAnchor: [20, 12],
+      });
+
+    const startPin = pin("start");
+    const endPin = pin("end");
+
+    const bounds: [number, number][] = [];
+    const carMarkers: Record<string, L.Marker> = {};
+    const lines: Record<string, L.Polyline> = {};
+    let activeAnim: number | null = null;
+
+    rides.forEach((r) => {
+      const start: [number, number] = [r.fromLat, r.fromLng];
+      bounds.push(start);
+
+      const hasEnd = r.toLat != null && r.toLng != null;
+      const end: [number, number] | null = hasEnd
+        ? [r.toLat as number, r.toLng as number]
+        : null;
+
+      if (end) {
+        const line = L.polyline([start, end], {
+          color: "#16704a",
+          weight: 2.5,
+          opacity: 0.35,
+          dashArray: "2 8",
+          lineCap: "round",
+        }).addTo(map);
+        lines[r.id] = line;
+        bounds.push(end);
+        L.marker(end, { icon: endPin }).addTo(map);
+      }
+
+      const car = L.marker(start, { icon: carIcon(), riseOnHover: true })
+        .addTo(map)
+        .bindPopup(popupHtml(r), { className: "ride-popup", maxWidth: 240 });
+      carMarkers[r.id] = car;
+
+      car.on("click", () => focusRide(r));
+    });
+
+    if (bounds.length) {
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+    } else {
+      map.setView([24.86, 67.0], 11); // sensible default
+    }
+
+    function focusRide(r: Ride) {
+      const car = carMarkers[r.id];
+      if (!car) return;
+      map.panTo(car.getLatLng(), { animate: true });
+      car.openPopup();
+      highlightCard(r.id);
+      if (r.toLat != null && r.toLng != null) {
+        driveRoute(r);
+      }
+    }
+
+    // Animate the car from start to drop-off along the route line.
+    function driveRoute(r: Ride) {
+      const car = carMarkers[r.id];
+      const line = lines[r.id];
+      if (!car || r.toLat == null || r.toLng == null) return;
+      if (activeAnim) cancelAnimationFrame(activeAnim);
+
+      const from = L.latLng(r.fromLat, r.fromLng);
+      const to = L.latLng(r.toLat, r.toLng);
+      const duration = 2200;
+      const startT = performance.now();
+
+      if (line) line.setStyle({ opacity: 0.85, weight: 3.5 });
+
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - startT) / duration);
+        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const lat = from.lat + (to.lat - from.lat) * ease;
+        const lng = from.lng + (to.lng - from.lng) * ease;
+        car.setLatLng([lat, lng]);
+        if (t < 1) {
+          activeAnim = requestAnimationFrame(tick);
+        } else {
+          // glide back so the car is ready to drive again
+          setTimeout(() => {
+            car.setLatLng(from);
+            if (line) line.setStyle({ opacity: 0.35, weight: 2.5 });
+          }, 700);
+        }
+      };
+      activeAnim = requestAnimationFrame(tick);
+    }
+
+    function highlightCard(id: string) {
+      const card = document.getElementById(`ride-${id}`);
+      if (!card) return;
+      document
+        .querySelectorAll(".ride-anchor.is-active")
+        .forEach((n) => n.classList.remove("is-active"));
+      card.classList.add("is-active");
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    // Clicking a ride card focuses its marker (ignore inner links/buttons).
+    document.querySelectorAll<HTMLElement>(".ride-anchor").forEach((anchor) => {
+      anchor.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("a, button")) return;
+        const id = anchor.dataset.id;
+        const ride = rides.find((r) => r.id === id);
+        if (ride) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          focusRide(ride);
+        }
+      });
+    });
+
+    // ---- "You are here" marker, driven by the page's geolocation -------
+    let userMarker: L.Marker | null = null;
+    let userRing: L.CircleMarker | null = null;
+    window.addEventListener("carpool:userlocation", (ev) => {
+      const { lat, lng } = (ev as CustomEvent).detail as {
+        lat: number;
+        lng: number;
+      };
+      const pos: [number, number] = [lat, lng];
+      if (!userMarker) {
+        userRing = L.circleMarker(pos, {
+          radius: 16,
+          color: "#2563eb",
+          weight: 0,
+          fillColor: "#2563eb",
+          fillOpacity: 0.14,
+        }).addTo(map);
+        userMarker = L.marker(pos, {
+          icon: L.divIcon({
+            className: "",
+            html: '<span class="you-marker" title="You are here"></span>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          }),
+          zIndexOffset: 1000,
+        })
+          .addTo(map)
+          .bindPopup("You are here");
+      } else {
+        userMarker.setLatLng(pos);
+        userRing?.setLatLng(pos);
+      }
+      // Recenter to include the visitor and the nearest rides.
+      const near = [pos, ...bounds].slice(0, 6);
+      map.fitBounds(near as [number, number][], {
+        padding: [60, 60],
+        maxZoom: 13,
+      });
+    });
+    window.addEventListener("carpool:userlocation:clear", () => {
+      if (userMarker) {
+        map.removeLayer(userMarker);
+        userMarker = null;
+      }
+      if (userRing) {
+        map.removeLayer(userRing);
+        userRing = null;
+      }
+      if (bounds.length) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+    });
+
+    function popupHtml(r: Ride) {
+      return `
+        <div class="rp">
+          <strong class="rp-name">${escapeHtml(r.name)}</strong>
+          <span class="rp-car">${escapeHtml(r.car)}</span>
+          <div class="rp-route">
+            <span>${escapeHtml(r.from)}</span> → <span>${escapeHtml(r.to)}</span>
+          </div>
+          <div class="rp-meta">${r.seats} seats${r.depart ? " · " + escapeHtml(r.depart) : ""}${r.fare ? " · " + escapeHtml(r.fare) : ""}</div>
+        </div>`;
+    }
+
+    function escapeHtml(s: string) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+  }
+
+  const CAR_SVG = `<svg viewBox="0 0 40 24" width="40" height="24" xmlns="http://www.w3.org/2000/svg">
+    <g>
+      <path d="M3 16c-1.1 0-2-.9-2-2v-1.5c0-.8.4-1.5 1.1-1.9l3-1.7 3.2-3.1C9 4.3 9.9 4 10.8 4h13.4c.9 0 1.8.4 2.4 1.1l3.4 4 5.1 1.2c1.1.3 1.9 1.3 1.9 2.4V14c0 1.1-.9 2-2 2H3Z" fill="#16704a"/>
+      <path d="M11 5.5h12.6c.6 0 1.1.2 1.5.7l2.7 3.1H8.2l2-2.7c.2-.7.4-1.1.8-1.1Z" fill="#cfe7d6"/>
+      <circle cx="11" cy="16.5" r="3.2" fill="#1d1b14"/>
+      <circle cx="11" cy="16.5" r="1.3" fill="#fff"/>
+      <circle cx="29" cy="16.5" r="3.2" fill="#1d1b14"/>
+      <circle cx="29" cy="16.5" r="1.3" fill="#fff"/>
+    </g>
+  </svg>`;
+</script>
+
+<style>
+  .map-shell {
+    margin-bottom: 1.75rem;
+  }
+  .map-canvas {
+    height: 420px;
+    width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-2);
+    box-shadow: var(--shadow);
+    background: #eef1ee;
+    z-index: 0;
+  }
+  .map-canvas[data-empty="true"] {
+    display: grid;
+    place-items: center;
+  }
+  .map-legend {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    margin-top: 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .map-legend i.lg {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+  }
+  .map-legend i.start {
+    background: var(--green);
+  }
+  .map-legend i.end {
+    background: var(--amber);
+  }
+  .map-legend .hint {
+    margin-left: auto;
+    font-weight: 500;
+  }
+  .map-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+  }
+
+  @media (max-width: 640px) {
+    .map-canvas {
+      height: 320px;
+    }
+    .map-legend .hint {
+      display: none;
+    }
+  }
+
+  /* Leaflet marker visuals (global so divIcon HTML is styled) */
+  :global(.pin-marker) {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2.5px solid #fff;
+    box-shadow: 0 2px 6px rgba(20, 30, 20, 0.4);
+  }
+  :global(.pin-marker.start) {
+    background: var(--green);
+  }
+  :global(.pin-marker.end) {
+    background: var(--amber);
+  }
+  :global(.you-marker) {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #2563eb;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 6px rgba(20, 30, 60, 0.45);
+    animation: youpulse 2s ease-in-out infinite;
+  }
+  @keyframes youpulse {
+    0%,
+    100% {
+      box-shadow: 0 2px 6px rgba(20, 30, 60, 0.45), 0 0 0 0 rgba(37, 99, 235, 0.4);
+    }
+    50% {
+      box-shadow: 0 2px 6px rgba(20, 30, 60, 0.45), 0 0 0 8px rgba(37, 99, 235, 0);
+    }
+  }
+  :global(.car-marker) {
+    display: block;
+    filter: drop-shadow(0 3px 4px rgba(20, 30, 20, 0.35));
+    transition: transform 0.15s ease;
+    cursor: pointer;
+  }
+  :global(.car-marker:hover) {
+    transform: scale(1.15);
+  }
+
+  /* Popup styling */
+  :global(.ride-popup .leaflet-popup-content-wrapper) {
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+  }
+  :global(.ride-popup .leaflet-popup-content) {
+    margin: 0.7rem 0.85rem;
+    font-family: var(--font-body);
+  }
+  :global(.rp-name) {
+    font-family: var(--font-display);
+    font-size: 1rem;
+  }
+  :global(.rp-car) {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+    text-transform: capitalize;
+    margin-bottom: 0.35rem;
+  }
+  :global(.rp-route) {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  :global(.rp-meta) {
+    font-size: 0.8rem;
+    color: var(--ink-2);
+    margin-top: 0.2rem;
+  }
+</style>
