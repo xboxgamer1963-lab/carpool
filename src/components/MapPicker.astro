@@ -51,17 +51,11 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
   <input type="hidden" name="toLng" id="toLng" value={toLng ?? ""} />
 </div>
 
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-  crossorigin=""
-/>
-
 <script>
-  import L from "leaflet";
+  import maplibregl from "maplibre-gl";
+  import "maplibre-gl/dist/maplibre-gl.css";
 
-  const el = document.getElementById("pick-map");
+  const el = document.getElementById("pick-map") as HTMLElement | null;
   if (el) {
     const $ = (id: string) => document.getElementById(id) as HTMLInputElement | null;
     const fromLat = $("fromLat")!;
@@ -73,40 +67,70 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
 
     let mode: "from" | "to" = "from";
 
-    const map = L.map(el, { scrollWheelZoom: false });
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      {
-        attribution:
-          '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        maxZoom: 19,
-      }
-    ).addTo(map);
+    const map = new maplibregl.Map({
+      container: el,
+      style: "https://tiles.openfreemap.org/styles/positron",
+      center: [67.0, 24.86],
+      zoom: 11,
+      attributionControl: { compact: true },
+    });
+    map.scrollZoom.disable();
+    map.addControl(
+      new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
+      "top-right"
+    );
 
-    const icon = (cls: string) =>
-      L.divIcon({
-        className: "",
-        html: `<span class="pin-marker ${cls}"></span>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 16],
+    const pinEl = (cls: string) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<span class="pin-marker ${cls}"></span>`;
+      const node = wrap.firstElementChild as HTMLElement;
+      node.style.opacity = "0";
+      return node;
+    };
+
+    const fromPinEl = pinEl("start");
+    const toPinEl = pinEl("end");
+
+    const fromMarker = new maplibregl.Marker({
+      element: fromPinEl,
+      draggable: true,
+      anchor: "bottom",
+    })
+      .setLngLat([0, 0])
+      .addTo(map);
+    const toMarker = new maplibregl.Marker({
+      element: toPinEl,
+      draggable: true,
+      anchor: "bottom",
+    })
+      .setLngLat([0, 0])
+      .addTo(map);
+
+    let fromPlaced = false;
+    let toPlaced = false;
+
+    const linkSourceId = "link-line";
+    const linkLayerId = "link-line-layer";
+
+    const ensureLinkLayer = () => {
+      if (map.getSource(linkSourceId)) return;
+      map.addSource(linkSourceId, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
       });
-
-    const fromMarker = L.marker([0, 0], {
-      icon: icon("start"),
-      draggable: true,
-      opacity: 0,
-    }).addTo(map);
-    const toMarker = L.marker([0, 0], {
-      icon: icon("end"),
-      draggable: true,
-      opacity: 0,
-    }).addTo(map);
-    const link = L.polyline([], {
-      color: "#16704a",
-      weight: 2.5,
-      opacity: 0.4,
-      dashArray: "2 8",
-    }).addTo(map);
+      map.addLayer({
+        id: linkLayerId,
+        type: "line",
+        source: linkSourceId,
+        layout: { "line-cap": "round" },
+        paint: {
+          "line-color": "#16704a",
+          "line-width": 2.5,
+          "line-opacity": 0.4,
+          "line-dasharray": [2, 4],
+        },
+      });
+    };
 
     function setPoint(
       which: "from" | "to",
@@ -115,12 +139,15 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       silent = false
     ) {
       const m = which === "from" ? fromMarker : toMarker;
-      m.setLatLng([lat, lng]);
-      m.setOpacity(1);
+      const node = which === "from" ? fromPinEl : toPinEl;
+      m.setLngLat([lng, lat]);
+      node.style.opacity = "1";
       if (which === "from") {
+        fromPlaced = true;
         fromLat.value = lat.toFixed(6);
         fromLng.value = lng.toFixed(6);
       } else {
+        toPlaced = true;
         toLat.value = lat.toFixed(6);
         toLng.value = lng.toFixed(6);
       }
@@ -131,12 +158,31 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
     }
 
     function redrawLink() {
-      const a = fromMarker.getLatLng();
-      const b = toMarker.getLatLng();
-      if (fromLat.value && toLat.value) {
-        link.setLatLngs([a, b]);
+      const src = map.getSource(linkSourceId) as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (!src) return;
+      if (fromPlaced && toPlaced) {
+        const a = fromMarker.getLngLat();
+        const b = toMarker.getLngLat();
+        src.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [a.lng, a.lat],
+                  [b.lng, b.lat],
+                ],
+              },
+            },
+          ],
+        });
       } else {
-        link.setLatLngs([]);
+        src.setData({ type: "FeatureCollection", features: [] });
       }
     }
 
@@ -150,8 +196,8 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       });
     });
 
-    map.on("click", (e: L.LeafletMouseEvent) => {
-      setPoint(mode, e.latlng.lat, e.latlng.lng);
+    map.on("click", (e) => {
+      setPoint(mode, e.lngLat.lat, e.lngLat.lng);
       // After placing pickup, switch to drop-off for a natural flow.
       if (mode === "from" && !toLat.value) {
         (document.querySelector('.mode-btn[data-mode="to"]') as HTMLButtonElement)
@@ -160,11 +206,11 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
     });
 
     fromMarker.on("dragend", () => {
-      const p = fromMarker.getLatLng();
+      const p = fromMarker.getLngLat();
       setPoint("from", p.lat, p.lng);
     });
     toMarker.on("dragend", () => {
-      const p = toMarker.getLatLng();
+      const p = toMarker.getLngLat();
       setPoint("to", p.lat, p.lng);
     });
 
@@ -206,7 +252,7 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       if (!q) return;
       const hit = await geocode(q);
       if (hit) {
-        map.setView([hit.lat, hit.lng], 14);
+        map.flyTo({ center: [hit.lng, hit.lat], zoom: 14 });
         setPoint(mode, hit.lat, hit.lng);
       } else {
         input?.classList.add("not-found");
@@ -229,7 +275,7 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords;
-          map.setView([latitude, longitude], 14);
+          map.flyTo({ center: [longitude, latitude], zoom: 14 });
           setPoint(mode, latitude, longitude);
           btn.disabled = false;
         },
@@ -240,43 +286,57 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       );
     });
 
-    // ---- Seed existing pins (edit mode) --------------------------------
-    const seedFrom =
-      fromLat.value && fromLng.value
-        ? ([parseFloat(fromLat.value), parseFloat(fromLng.value)] as [
-            number,
-            number,
-          ])
-        : null;
-    const seedTo =
-      toLat.value && toLng.value
-        ? ([parseFloat(toLat.value), parseFloat(toLng.value)] as [
-            number,
-            number,
-          ])
-        : null;
-    if (seedFrom) setPoint("from", seedFrom[0], seedFrom[1], true);
-    if (seedTo) setPoint("to", seedTo[0], seedTo[1], true);
+    // ---- Seed existing pins + initial view -----------------------------
+    // Layers can only be added after the style loads; seed inside the load
+    // handler so the link line shows up correctly.
+    const onReady = () => {
+      ensureLinkLayer();
 
-    // ---- Initial view --------------------------------------------------
-    if (seedFrom || seedTo) {
-      const pts = [seedFrom, seedTo].filter(Boolean) as [number, number][];
-      if (pts.length > 1) map.fitBounds(pts, { padding: [60, 60], maxZoom: 14 });
-      else map.setView(pts[0], 14);
-    } else {
-      // No existing data: default city, then try to center on the driver.
-      map.setView([24.86, 67.0], 11);
-      if (navigator.geolocation) {
+      const seedFrom =
+        fromLat.value && fromLng.value
+          ? ([parseFloat(fromLat.value), parseFloat(fromLng.value)] as [
+              number,
+              number,
+            ])
+          : null;
+      const seedTo =
+        toLat.value && toLng.value
+          ? ([parseFloat(toLat.value), parseFloat(toLng.value)] as [
+              number,
+              number,
+            ])
+          : null;
+      if (seedFrom) setPoint("from", seedFrom[0], seedFrom[1], true);
+      if (seedTo) setPoint("to", seedTo[0], seedTo[1], true);
+
+      if (seedFrom || seedTo) {
+        const pts = [seedFrom, seedTo].filter(Boolean) as [number, number][];
+        if (pts.length > 1) {
+          const b = new maplibregl.LngLatBounds();
+          pts.forEach(([la, ln]) => b.extend([ln, la]));
+          map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 0 });
+        } else {
+          map.jumpTo({ center: [pts[0][1], pts[0][0]], zoom: 14 });
+        }
+      } else if (navigator.geolocation) {
+        // No existing data: default city is already set; try to center on driver.
         navigator.geolocation.getCurrentPosition(
-          (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 12),
+          (pos) =>
+            map.jumpTo({
+              center: [pos.coords.longitude, pos.coords.latitude],
+              zoom: 12,
+            }),
           () => {},
           { timeout: 4000 }
         );
       }
-    }
 
-    // Leaflet needs a size recalculation once laid out.
-    setTimeout(() => map.invalidateSize(), 200);
+      // MapLibre needs a size recalculation once the container is laid out.
+      setTimeout(() => map.resize(), 200);
+    };
+
+    if (map.isStyleLoaded()) onReady();
+    else map.once("load", onReady);
   }
 </script>
 
@@ -359,6 +419,7 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
     border-radius: var(--radius-sm);
     border: 1px solid var(--line-2);
     z-index: 0;
+    overflow: hidden;
   }
   .pick-hint {
     margin: 0;

@@ -50,15 +50,9 @@ const hiddenCount = drivers.length - mapped.length;
   set:html={JSON.stringify(mapped)}
 />
 
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-  crossorigin=""
-/>
-
 <script>
-  import L from "leaflet";
+  import maplibregl from "maplibre-gl";
+  import "maplibre-gl/dist/maplibre-gl.css";
 
   type Ride = {
     id: string;
@@ -75,125 +69,174 @@ const hiddenCount = drivers.length - mapped.length;
     toLng: number | null;
   };
 
-  const el = document.getElementById("route-map");
+  const el = document.getElementById("route-map") as HTMLElement | null;
   const dataEl = document.getElementById("route-data");
   if (el && dataEl) {
     const rides: Ride[] = JSON.parse(dataEl.textContent || "[]");
 
-    const map = L.map(el, {
-      scrollWheelZoom: false,
-      zoomControl: true,
-      attributionControl: true,
+    const map = new maplibregl.Map({
+      container: el,
+      style: "https://tiles.openfreemap.org/styles/positron",
+      center: [67.0, 24.86],
+      zoom: 11,
+      attributionControl: { compact: true },
     });
+    map.scrollZoom.disable();
+    map.addControl(
+      new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
+      "top-right"
+    );
 
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      {
-        attribution:
-          '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        maxZoom: 19,
-      }
-    ).addTo(map);
+    const pinEl = (cls: string) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<span class="pin-marker ${cls}"></span>`;
+      return wrap.firstElementChild as HTMLElement;
+    };
+    const carEl = () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<span class="car-marker">${CAR_SVG}</span>`;
+      return wrap.firstElementChild as HTMLElement;
+    };
 
-    // ---- icon factories -------------------------------------------------
-    const pin = (cls: string) =>
-      L.divIcon({
-        className: "",
-        html: `<span class="pin-marker ${cls}"></span>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-      });
-
-    const carIcon = () =>
-      L.divIcon({
-        className: "",
-        html: `<span class="car-marker">${CAR_SVG}</span>`,
-        iconSize: [40, 24],
-        iconAnchor: [20, 12],
-      });
-
-    const startPin = pin("start");
-    const endPin = pin("end");
-
-    const bounds: [number, number][] = [];
-    const carMarkers: Record<string, L.Marker> = {};
-    const lines: Record<string, L.Polyline> = {};
+    const bounds = new maplibregl.LngLatBounds();
+    const carMarkers: Record<string, maplibregl.Marker> = {};
+    const ridesById: Record<string, Ride> = {};
     let activeAnim: number | null = null;
+    let activeLineId: string | null = null;
 
-    rides.forEach((r) => {
-      const start: [number, number] = [r.fromLat, r.fromLng];
-      bounds.push(start);
+    const lineSourceId = (id: string) => `ride-line-${id}`;
+    const lineLayerId = (id: string) => `ride-line-layer-${id}`;
 
-      const hasEnd = r.toLat != null && r.toLng != null;
-      const end: [number, number] | null = hasEnd
-        ? [r.toLat as number, r.toLng as number]
-        : null;
-
-      if (end) {
-        const line = L.polyline([start, end], {
-          color: "#16704a",
-          weight: 2.5,
-          opacity: 0.35,
-          dashArray: "2 8",
-          lineCap: "round",
-        }).addTo(map);
-        lines[r.id] = line;
-        bounds.push(end);
-        L.marker(end, { icon: endPin }).addTo(map);
-      }
-
-      const car = L.marker(start, { icon: carIcon(), riseOnHover: true })
-        .addTo(map)
-        .bindPopup(popupHtml(r), { className: "ride-popup", maxWidth: 240 });
-      carMarkers[r.id] = car;
-
-      car.on("click", () => focusRide(r));
+    const lineFeature = (a: [number, number], b: [number, number]) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: {
+        type: "LineString" as const,
+        coordinates: [a, b],
+      },
     });
 
-    if (bounds.length) {
-      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
-    } else {
-      map.setView([24.86, 67.0], 11); // sensible default
-    }
+    const initMap = () => {
+      rides.forEach((r) => {
+        ridesById[r.id] = r;
+        const start: [number, number] = [r.fromLng, r.fromLat];
+        bounds.extend(start);
+
+        const hasEnd = r.toLat != null && r.toLng != null;
+        const end: [number, number] | null = hasEnd
+          ? [r.toLng as number, r.toLat as number]
+          : null;
+
+        if (end) {
+          const srcId = lineSourceId(r.id);
+          const lyrId = lineLayerId(r.id);
+          map.addSource(srcId, {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: [lineFeature(start, end)],
+            },
+          });
+          map.addLayer({
+            id: lyrId,
+            type: "line",
+            source: srcId,
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": "#16704a",
+              "line-width": 2.5,
+              "line-opacity": 0.35,
+              "line-dasharray": [2, 4],
+            },
+          });
+          bounds.extend(end);
+          new maplibregl.Marker({ element: pinEl("end"), anchor: "bottom" })
+            .setLngLat(end)
+            .addTo(map);
+        }
+
+        const popup = new maplibregl.Popup({
+          className: "ride-popup",
+          maxWidth: "240px",
+          offset: 18,
+          closeButton: false,
+        }).setHTML(popupHtml(r));
+
+        const car = new maplibregl.Marker({
+          element: carEl(),
+          anchor: "center",
+        })
+          .setLngLat(start)
+          .setPopup(popup)
+          .addTo(map);
+        carMarkers[r.id] = car;
+
+        car.getElement().addEventListener("click", (e) => {
+          e.stopPropagation();
+          focusRide(r);
+        });
+      });
+
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 0 });
+      } else {
+        map.setCenter([67.0, 24.86]);
+        map.setZoom(11);
+      }
+    };
+
+    // Layers/sources must be added after the style finishes loading.
+    if (map.isStyleLoaded()) initMap();
+    else map.once("load", initMap);
 
     function focusRide(r: Ride) {
       const car = carMarkers[r.id];
       if (!car) return;
-      map.panTo(car.getLatLng(), { animate: true });
-      car.openPopup();
+      map.panTo(car.getLngLat(), { animate: true });
+      const popup = car.getPopup();
+      if (popup && !popup.isOpen()) car.togglePopup();
       highlightCard(r.id);
       if (r.toLat != null && r.toLng != null) {
         driveRoute(r);
       }
     }
 
-    // Animate the car from start to drop-off along the route line.
+    function setLineActive(id: string, active: boolean) {
+      const layer = lineLayerId(id);
+      if (!map.getLayer(layer)) return;
+      map.setPaintProperty(layer, "line-opacity", active ? 0.85 : 0.35);
+      map.setPaintProperty(layer, "line-width", active ? 3.5 : 2.5);
+    }
+
     function driveRoute(r: Ride) {
       const car = carMarkers[r.id];
-      const line = lines[r.id];
       if (!car || r.toLat == null || r.toLng == null) return;
       if (activeAnim) cancelAnimationFrame(activeAnim);
+      if (activeLineId && activeLineId !== r.id) setLineActive(activeLineId, false);
 
-      const from = L.latLng(r.fromLat, r.fromLng);
-      const to = L.latLng(r.toLat, r.toLng);
+      const fromLng = r.fromLng;
+      const fromLat = r.fromLat;
+      const toLng = r.toLng;
+      const toLat = r.toLat;
       const duration = 2200;
       const startT = performance.now();
 
-      if (line) line.setStyle({ opacity: 0.85, weight: 3.5 });
+      activeLineId = r.id;
+      setLineActive(r.id, true);
 
       const tick = (now: number) => {
         const t = Math.min(1, (now - startT) / duration);
         const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        const lat = from.lat + (to.lat - from.lat) * ease;
-        const lng = from.lng + (to.lng - from.lng) * ease;
-        car.setLatLng([lat, lng]);
+        const lat = fromLat + (toLat - fromLat) * ease;
+        const lng = fromLng + (toLng - fromLng) * ease;
+        car.setLngLat([lng, lat]);
         if (t < 1) {
           activeAnim = requestAnimationFrame(tick);
         } else {
-          // glide back so the car is ready to drive again
           setTimeout(() => {
-            car.setLatLng(from);
-            if (line) line.setStyle({ opacity: 0.35, weight: 2.5 });
+            car.setLngLat([fromLng, fromLat]);
+            setLineActive(r.id, false);
+            if (activeLineId === r.id) activeLineId = null;
           }, 700);
         }
       };
@@ -210,69 +253,70 @@ const hiddenCount = drivers.length - mapped.length;
       card.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    // Clicking a ride card focuses its marker (ignore inner links/buttons).
     document.querySelectorAll<HTMLElement>(".ride-anchor").forEach((anchor) => {
       anchor.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
         if (target.closest("a, button")) return;
         const id = anchor.dataset.id;
-        const ride = rides.find((r) => r.id === id);
+        const ride = id ? ridesById[id] : undefined;
         if (ride) {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          el!.scrollIntoView({ behavior: "smooth", block: "start" });
           focusRide(ride);
         }
       });
     });
 
-    // ---- "You are here" marker, driven by the page's geolocation -------
-    let userMarker: L.Marker | null = null;
-    let userRing: L.CircleMarker | null = null;
+    // ---- "You are here" marker, driven by the page's geolocation ----------
+    let userMarker: maplibregl.Marker | null = null;
+    let userRing: maplibregl.Marker | null = null;
+    const ringEl = () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = '<span class="you-ring"></span>';
+      return wrap.firstElementChild as HTMLElement;
+    };
+    const youEl = () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = '<span class="you-marker" title="You are here"></span>';
+      return wrap.firstElementChild as HTMLElement;
+    };
+
     window.addEventListener("carpool:userlocation", (ev) => {
       const { lat, lng } = (ev as CustomEvent).detail as {
         lat: number;
         lng: number;
       };
-      const pos: [number, number] = [lat, lng];
+      const pos: [number, number] = [lng, lat];
       if (!userMarker) {
-        userRing = L.circleMarker(pos, {
-          radius: 16,
-          color: "#2563eb",
-          weight: 0,
-          fillColor: "#2563eb",
-          fillOpacity: 0.14,
-        }).addTo(map);
-        userMarker = L.marker(pos, {
-          icon: L.divIcon({
-            className: "",
-            html: '<span class="you-marker" title="You are here"></span>',
-            iconSize: [18, 18],
-            iconAnchor: [9, 9],
-          }),
-          zIndexOffset: 1000,
-        })
-          .addTo(map)
-          .bindPopup("You are here");
+        userRing = new maplibregl.Marker({ element: ringEl(), anchor: "center" })
+          .setLngLat(pos)
+          .addTo(map);
+        const popup = new maplibregl.Popup({ offset: 14, closeButton: false }).setText(
+          "You are here"
+        );
+        userMarker = new maplibregl.Marker({ element: youEl(), anchor: "center" })
+          .setLngLat(pos)
+          .setPopup(popup)
+          .addTo(map);
       } else {
-        userMarker.setLatLng(pos);
-        userRing?.setLatLng(pos);
+        userMarker.setLngLat(pos);
+        userRing?.setLngLat(pos);
       }
-      // Recenter to include the visitor and the nearest rides.
-      const near = [pos, ...bounds].slice(0, 6);
-      map.fitBounds(near as [number, number][], {
-        padding: [60, 60],
-        maxZoom: 13,
-      });
+      // Recenter to include the visitor and a handful of nearest rides.
+      const near = new maplibregl.LngLatBounds();
+      near.extend(pos);
+      rides.slice(0, 5).forEach((r) => near.extend([r.fromLng, r.fromLat]));
+      map.fitBounds(near, { padding: 60, maxZoom: 13 });
     });
     window.addEventListener("carpool:userlocation:clear", () => {
       if (userMarker) {
-        map.removeLayer(userMarker);
+        userMarker.remove();
         userMarker = null;
       }
       if (userRing) {
-        map.removeLayer(userRing);
+        userRing.remove();
         userRing = null;
       }
-      if (bounds.length) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 48, maxZoom: 14 });
     });
 
     function popupHtml(r: Ride) {
@@ -318,6 +362,7 @@ const hiddenCount = drivers.length - mapped.length;
     box-shadow: var(--shadow);
     background: #eef1ee;
     z-index: 0;
+    overflow: hidden;
   }
   .map-canvas[data-empty="true"] {
     display: grid;
@@ -364,7 +409,7 @@ const hiddenCount = drivers.length - mapped.length;
     }
   }
 
-  /* Leaflet marker visuals (global so divIcon HTML is styled) */
+  /* Marker visuals (global so the HTML inside marker elements is styled) */
   :global(.pin-marker) {
     display: block;
     width: 16px;
@@ -390,6 +435,14 @@ const hiddenCount = drivers.length - mapped.length;
     box-shadow: 0 2px 6px rgba(20, 30, 60, 0.45);
     animation: youpulse 2s ease-in-out infinite;
   }
+  :global(.you-ring) {
+    display: block;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.14);
+    pointer-events: none;
+  }
   @keyframes youpulse {
     0%,
     100% {
@@ -409,14 +462,16 @@ const hiddenCount = drivers.length - mapped.length;
     transform: scale(1.15);
   }
 
-  /* Popup styling */
-  :global(.ride-popup .leaflet-popup-content-wrapper) {
+  /* Popup styling — MapLibre uses its own class names */
+  :global(.ride-popup .maplibregl-popup-content) {
     border-radius: 12px;
     box-shadow: var(--shadow-lg);
-  }
-  :global(.ride-popup .leaflet-popup-content) {
-    margin: 0.7rem 0.85rem;
+    padding: 0.7rem 0.85rem;
     font-family: var(--font-body);
+  }
+  :global(.ride-popup .maplibregl-popup-tip) {
+    border-top-color: #fff;
+    border-bottom-color: #fff;
   }
   :global(.rp-name) {
     font-family: var(--font-display);
