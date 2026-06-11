@@ -120,6 +120,18 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
     let fromPlaced = false;
     let toPlaced = false;
 
+    // ---- Stops along the way ------------------------------------------
+    // The driver form has a `#stops` text input ("Clifton, Saddar"). We
+    // geocode each name, drop an intermediate pin per resolved stop, and
+    // pass them as OSRM waypoints so the route actually goes through them.
+    // RequestForm has no stops field — the input lookup just returns null.
+    const stopsInput = $("stops");
+    const stopMarkers: maplibregl.Marker[] = [];
+    const stopCoords: [number, number][] = []; // [lng, lat] for OSRM
+    const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
+    let stopsReq = 0;
+    let stopsTimer: number | undefined;
+
     const ROUTE_SRC = "route-line";
     const ROUTE_LYR = "route-line-layer";
 
@@ -165,14 +177,16 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
 
     function setStraightFallback() {
       // While we wait for OSRM (or if it fails) show a faint dashed line so
-      // the driver at least sees their two stops are connected.
+      // the driver at least sees their pickup, stops and drop-off are connected.
       if (!map.getLayer(ROUTE_LYR)) return;
       const a = fromMarker.getLngLat();
       const b = toMarker.getLngLat();
-      setRouteData([
+      const coords: [number, number][] = [
         [a.lng, a.lat],
+        ...stopCoords,
         [b.lng, b.lat],
-      ]);
+      ];
+      setRouteData(coords);
       map.setPaintProperty(ROUTE_LYR, "line-opacity", 0.35);
       map.setPaintProperty(ROUTE_LYR, "line-width", 2.5);
       map.setPaintProperty(ROUTE_LYR, "line-dasharray", [2, 4]);
@@ -205,10 +219,16 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
         const reqId = ++routeReq;
         const a = fromMarker.getLngLat();
         const b = toMarker.getLngLat();
+        const waypoints: [number, number][] = [
+          [a.lng, a.lat],
+          ...stopCoords,
+          [b.lng, b.lat],
+        ];
         const url =
           `https://router.project-osrm.org/route/v1/driving/` +
-          `${a.lng.toFixed(6)},${a.lat.toFixed(6)};` +
-          `${b.lng.toFixed(6)},${b.lat.toFixed(6)}` +
+          waypoints
+            .map(([ln, la]) => `${ln.toFixed(6)},${la.toFixed(6)}`)
+            .join(";") +
           `?overview=full&geometries=geojson`;
         try {
           const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -230,6 +250,58 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
         }
       }, 350);
     }
+
+    // ---- Stops: geocode + render pins + feed into refreshRoute ---------
+    const stopPinEl = () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<span class="stop-pin"></span>`;
+      return wrap.firstElementChild as HTMLElement;
+    };
+
+    function clearStopMarkers() {
+      while (stopMarkers.length) stopMarkers.pop()!.remove();
+      stopCoords.length = 0;
+    }
+
+    async function geocodeStopName(name: string) {
+      const key = `${name}|${currentCity?.slug ?? ""}`;
+      if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null;
+      const hit = await geocode(name).catch(() => null);
+      geocodeCache.set(key, hit);
+      return hit;
+    }
+
+    function refreshStops() {
+      if (!stopsInput) return;
+      window.clearTimeout(stopsTimer);
+      stopsTimer = window.setTimeout(async () => {
+        const reqId = ++stopsReq;
+        const names = stopsInput.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        clearStopMarkers();
+        for (const name of names) {
+          const hit = await geocodeStopName(name);
+          if (reqId !== stopsReq) return; // stale
+          if (!hit) continue;
+          const marker = new maplibregl.Marker({
+            element: stopPinEl(),
+            anchor: "center",
+          })
+            .setLngLat([hit.lng, hit.lat])
+            .setPopup(
+              new maplibregl.Popup({ offset: 12, closeButton: false }).setText(name)
+            )
+            .addTo(map);
+          stopMarkers.push(marker);
+          stopCoords.push([hit.lng, hit.lat]);
+        }
+        refreshRoute();
+      }, 600);
+    }
+
+    stopsInput?.addEventListener("input", refreshStops);
 
     function setPoint(
       which: "from" | "to",
@@ -368,6 +440,9 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
       const slug = (ev as CustomEvent).detail?.slug as string | undefined;
       const next = getCity(slug ?? null);
       currentCity = next;
+      // Cached stop geocodes were biased to the previous city — invalidate.
+      geocodeCache.clear();
+      refreshStops();
       if (!next) {
         map.setMaxBounds(null);
         return;
@@ -398,6 +473,9 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
           : null;
       if (seedFrom) setPoint("from", seedFrom[0], seedFrom[1], true);
       if (seedTo) setPoint("to", seedTo[0], seedTo[1], true);
+      // If the driver is editing a listing with stops already saved, geocode
+      // them now so they appear on the map.
+      if (stopsInput?.value.trim()) refreshStops();
 
       if (seedFrom || seedTo) {
         const pts = [seedFrom, seedTo].filter(Boolean) as [number, number][];
@@ -530,5 +608,15 @@ const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
   }
   :global(.pin-marker.end) {
     background: var(--amber);
+  }
+  :global(.stop-pin) {
+    display: block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #16704a;
+    border: 2.5px solid #fff;
+    box-shadow: 0 2px 5px rgba(20, 30, 20, 0.4);
+    cursor: pointer;
   }
 </style>

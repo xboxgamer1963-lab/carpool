@@ -3,6 +3,7 @@ import Layout from "../../layouts/Layout.astro";
 import DriverCard from "../../components/DriverCard.astro";
 import RouteMap from "../../components/RouteMap.astro";
 import { searchDrivers, type ScoredDriver } from "../../lib/drivers";
+import { CITIES } from "../../lib/cities";
 
 const url = new URL(Astro.request.url);
 const p = url.searchParams;
@@ -21,10 +22,11 @@ const toText = p.get("to")?.trim() ?? "";
 const daysParam = p.get("days")?.trim() ?? "";
 const days = daysParam ? daysParam.split(",").filter(Boolean) : [];
 const genderPref = p.get("genderPref")?.trim() ?? "";
+const city = p.get("city")?.trim() ?? "";
 
 const hasCoords =
   Number.isFinite(fromLat) && Number.isFinite(fromLng);
-const hasQuery = hasCoords || Boolean(fromText || toText || days.length || genderPref);
+const hasQuery = hasCoords || Boolean(fromText || toText || days.length || genderPref || city);
 
 let scored: ScoredDriver[] = [];
 let error: string | null = null;
@@ -38,6 +40,7 @@ try {
     toText,
     days: days.length ? days : undefined,
     genderPref: genderPref || undefined,
+    city: city || undefined,
   });
 } catch (e) {
   error = e instanceof Error ? e.message : "Could not load rides.";
@@ -66,6 +69,15 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   <!-- Search / filter form -->
   <form class="filter card" method="GET" action="/drivers" id="search-form">
     <div class="filter-row">
+      <div class="filter-field filter-field-city">
+        <label for="city">City</label>
+        <select id="city" name="city" onchange="this.form.submit()">
+          <option value="" selected={!city}>All cities</option>
+          {CITIES.map((c) => (
+            <option value={c.slug} selected={city === c.slug}>{c.name}</option>
+          ))}
+        </select>
+      </div>
       <div class="filter-field">
         <label for="from">From</label>
         <div class="ic">
@@ -468,6 +480,8 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     gap: 0.85rem;
   }
   .filter-field { flex: 1 1 13rem; }
+  .filter-field-city { flex: 0 1 11rem; }
+  .filter-field-city select { width: 100%; }
   .filter-field label {
     font-size: 0.72rem;
     text-transform: uppercase;

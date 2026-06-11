@@ -1,6 +1,7 @@
 import { getDb } from "./firebase";
 import { haversineKm, detourKm, pickupOnlyDetourKm, detourThresholdKm } from "./scoring";
 import type { GenderPref, SearchOpts } from "./drivers";
+import { detectCity } from "./cities";
 
 export interface RiderRequest {
   id: string;
@@ -123,6 +124,18 @@ export async function searchRequests(opts: SearchOpts): Promise<ScoredRequest[]>
   const all = await listRequests();
 
   let filtered = all;
+
+  // City filter (with legacy fallback via pin coordinates).
+  if (opts.city) {
+    filtered = filtered.filter((r) => {
+      if (r.city) return r.city === opts.city;
+      if (r.fromLat != null && r.fromLng != null) {
+        return detectCity(r.fromLat, r.fromLng)?.slug === opts.city;
+      }
+      return false;
+    });
+  }
+
   if (opts.days && opts.days.length > 0) {
     filtered = filtered.filter((r) =>
       opts.days!.some((day) => r.days.includes(day)),

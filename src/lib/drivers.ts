@@ -1,5 +1,6 @@
 import { getDb } from "./firebase";
 import { haversineKm, detourKm, pickupOnlyDetourKm, detourThresholdKm } from "./scoring";
+import { detectCity } from "./cities";
 
 export type GenderPref = "any" | "female_only" | "male_only";
 
@@ -48,6 +49,7 @@ export interface SearchOpts {
   toText?: string;
   days?: string[];
   genderPref?: string;
+  city?: string;
 }
 
 const COLLECTION = "drivers";
@@ -139,8 +141,20 @@ export async function getDriversByOwner(ownerId: string): Promise<Driver[]> {
 export async function searchDrivers(opts: SearchOpts): Promise<ScoredDriver[]> {
   const all = await listDrivers(); // already filtered for active
 
-  // Day filter.
   let filtered = all;
+
+  // City filter (with legacy fallback via pin coordinates).
+  if (opts.city) {
+    filtered = filtered.filter((d) => {
+      if (d.city) return d.city === opts.city;
+      if (d.fromLat != null && d.fromLng != null) {
+        return detectCity(d.fromLat, d.fromLng)?.slug === opts.city;
+      }
+      return false;
+    });
+  }
+
+  // Day filter.
   if (opts.days && opts.days.length > 0) {
     filtered = filtered.filter((d) =>
       opts.days!.some((day) => d.days.includes(day)),
