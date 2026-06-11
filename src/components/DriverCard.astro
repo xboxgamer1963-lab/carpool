@@ -1,18 +1,64 @@
 ---
 import type { Driver } from "../lib/drivers";
+import { detourLabel } from "../lib/scoring";
 import { telHref, whatsappHref } from "../lib/contact";
 
 interface Props {
   driver: Driver;
   owned?: boolean;
+  detourKm?: number | null;
+  isNearMiss?: boolean;
+  siteOrigin?: string;
 }
-const { driver, owned = false } = Astro.props;
+const { driver, owned = false, detourKm, isNearMiss = false, siteOrigin = "" } = Astro.props;
+
+const listingUrl = `${siteOrigin}/drivers/${driver.id}`;
+const daysLabel =
+  driver.days.length === 5 && ["Mon","Tue","Wed","Thu","Fri"].every(d => driver.days.includes(d))
+    ? "Mon–Fri"
+    : driver.days.join(", ");
+const shareText = `I'm driving from ${driver.fromLocation} to ${driver.toLocation} on ${daysLabel}. I have ${driver.seats} seat${driver.seats !== 1 ? "s" : ""} open — join my carpool:\n${listingUrl}`;
 
 const initial = (driver.name.trim()[0] ?? "?").toUpperCase();
-const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLocation} to ${driver.toLocation} on Carpool. Is a seat available?`;
+
+const genderLabel =
+  driver.genderPref === "female_only"
+    ? "Female only"
+    : driver.genderPref === "male_only"
+    ? "Male only"
+    : null;
+
+const genderContext =
+  driver.genderPref === "female_only" ? "female-only carpool" : null;
+
+const waMessage =
+  `Hi ${driver.name}, I found your${genderContext ? ` ${genderContext}` : ""} listing from ${driver.fromLocation} to ${driver.toLocation} on Carpool. Is a seat available?`;
+
+const now = Date.now();
+const lastActive = driver.lastRenewedAt
+  ? Math.max(driver.createdAt, driver.lastRenewedAt)
+  : driver.createdAt;
+const ageMs = now - lastActive;
+const ageDays = Math.floor(ageMs / 86400000);
+const freshLabel = ageDays === 0
+  ? "Today"
+  : ageDays === 1
+  ? "Yesterday"
+  : `${ageDays} days ago`;
+
+const daysUntilExpiry = Math.floor((driver.expiresAt - now) / 86400000);
+const nearExpiry = daysUntilExpiry >= 0 && daysUntilExpiry <= 5;
+const expired = daysUntilExpiry < 0;
+
+const detourText =
+  detourKm != null ? detourLabel(detourKm) : null;
 ---
 
-<article class="driver card">
+<article class:list={["driver", "card", { stale: nearExpiry && !expired }]}>
+  {isNearMiss && (
+    <div class="near-miss-banner">Nearest match — outside your exact route</div>
+  )}
+
   <header class="head">
     <span class="avatar">{initial}</span>
     <div class="who">
@@ -21,7 +67,14 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
         {[driver.carColor, driver.carMake, driver.carModel].filter(Boolean).join(" ")}
       </p>
     </div>
-    {driver.fare && <span class="fare">{driver.fare}</span>}
+    <div class="head-badges">
+      {driver.fare && <span class="fare">{driver.fare}</span>}
+      {genderLabel && (
+        <span class:list={["pref-badge", driver.genderPref]}>
+          {genderLabel}
+        </span>
+      )}
+    </div>
   </header>
 
   <div class="route">
@@ -54,23 +107,71 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
       {driver.seats} {driver.seats === 1 ? "seat" : "seats"}
     </span>
     {driver.days.length > 0 && <span class="chip">{driver.days.join(", ")}</span>}
+    {detourText && (
+      <span class:list={["chip", "detour-chip", { "on-the-way": detourKm! < 0.5 }]}>
+        {detourText}
+      </span>
+    )}
   </div>
 
   {driver.notes && <p class="notes">{driver.notes}</p>}
+
+  <div class="meta">
+    <span class="fresh muted">{driver.lastRenewedAt ? "Renewed" : "Posted"} {freshLabel}</span>
+    {nearExpiry && !expired && (
+      <span class="expiry-warn">Renewing soon</span>
+    )}
+    {expired && <span class="expiry-dead">Expired</span>}
+  </div>
 
   <footer class="actions">
     {
       owned ? (
         <>
+          {/* Share button — most prominent action for active listings */}
+          {!expired && (
+            <button
+              type="button"
+              class="btn btn-primary share-trigger"
+              data-share-text={shareText}
+              data-share-url={listingUrl}
+              data-listing-url={listingUrl}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+              Share
+            </button>
+          )}
           <a class="btn btn-ghost edit" href={`/drivers/edit/${driver.id}`}>
             Edit
           </a>
-          <form method="POST" action="/api/drivers/delete">
-            <input type="hidden" name="id" value={driver.id} />
-            <button type="submit" class="btn btn-ghost btn-block danger">
-              Delete
-            </button>
-          </form>
+          {expired ? (
+            <form method="POST" action="/api/drivers/renew">
+              <input type="hidden" name="id" value={driver.id} />
+              <button type="submit" class="btn btn-primary btn-block">
+                Restore listing
+              </button>
+            </form>
+          ) : (
+            <>
+              {nearExpiry && (
+                <form method="POST" action="/api/drivers/renew">
+                  <input type="hidden" name="id" value={driver.id} />
+                  <button type="submit" class="btn btn-ghost btn-block renew">
+                    Renew 30 days
+                  </button>
+                </form>
+              )}
+              <form method="POST" action="/api/drivers/delete">
+                <input type="hidden" name="id" value={driver.id} />
+                <button type="submit" class="btn btn-ghost btn-block danger">
+                  Delete
+                </button>
+              </form>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -107,10 +208,24 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     box-shadow: var(--shadow-lg);
     border-color: var(--line-2);
   }
+  .driver.stale {
+    border-color: var(--amber-soft);
+  }
+
+  .near-miss-banner {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--amber);
+    background: var(--amber-soft);
+    margin: -1.4rem -1.4rem 0;
+    padding: 0.35rem 1rem;
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: 1px solid rgba(216,132,42,0.2);
+  }
 
   .head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.75rem;
   }
   .avatar {
@@ -140,9 +255,14 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     color: var(--ink-2);
     text-transform: capitalize;
   }
-  .fare {
+  .head-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
     flex-shrink: 0;
-    align-self: flex-start;
+  }
+  .fare {
     background: var(--green-soft);
     color: var(--green-ink);
     font-weight: 700;
@@ -150,6 +270,21 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     padding: 0.3rem 0.6rem;
     border-radius: var(--radius-pill);
     white-space: nowrap;
+  }
+  .pref-badge {
+    font-weight: 700;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .pref-badge.female_only {
+    background: #fce8f3;
+    color: #8b1a5a;
+  }
+  .pref-badge.male_only {
+    background: #e8f0fc;
+    color: #1a3d8b;
   }
 
   /* Route timeline */
@@ -169,12 +304,8 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .rail .dot.start {
-    background: var(--green);
-  }
-  .rail .dot.end {
-    background: var(--amber);
-  }
+  .rail .dot.start { background: var(--green); }
+  .rail .dot.end { background: var(--amber); }
   .rail .line {
     width: 2px;
     flex: 1;
@@ -191,21 +322,10 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     flex-direction: column;
     gap: 0.55rem;
   }
-  .leg {
-    display: flex;
-    flex-direction: column;
-  }
-  .loc {
-    font-weight: 600;
-    font-size: 0.98rem;
-  }
-  .time {
-    font-size: 0.78rem;
-  }
-  .via {
-    font-size: 0.78rem;
-    padding-left: 0.1rem;
-  }
+  .leg { display: flex; flex-direction: column; }
+  .loc { font-weight: 600; font-size: 0.98rem; }
+  .time { font-size: 0.78rem; }
+  .via { font-size: 0.78rem; padding-left: 0.1rem; }
 
   .chips {
     display: flex;
@@ -221,6 +341,16 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     padding: 0.25rem 0.6rem;
     border-radius: var(--radius-pill);
   }
+  .detour-chip {
+    background: var(--amber-soft);
+    color: #7a4a10;
+    border-color: rgba(216,132,42,0.3);
+  }
+  .detour-chip.on-the-way {
+    background: var(--green-soft);
+    color: var(--green-ink);
+    border-color: rgba(22,112,74,0.25);
+  }
 
   .notes {
     margin: 0;
@@ -232,11 +362,37 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
 
+  .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.76rem;
+  }
+  .fresh { font-size: 0.76rem; }
+  .expiry-warn {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #7a4a10;
+    background: var(--amber-soft);
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-pill);
+  }
+  .expiry-dead {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--danger);
+    background: var(--danger-soft);
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-pill);
+  }
+
   .actions {
     display: flex;
     gap: 0.55rem;
     margin-top: auto;
     padding-top: 0.25rem;
+    flex-wrap: wrap;
   }
   .actions form {
     margin: 0;
@@ -253,4 +409,36 @@ const waMessage = `Hi ${driver.name}, I found your carpool from ${driver.fromLoc
   .danger:hover {
     border-color: var(--danger);
   }
+  .renew {
+    color: var(--green);
+    border-color: var(--green-soft);
+  }
+  .renew:hover {
+    border-color: var(--green);
+  }
+  .share-trigger {
+    flex-shrink: 0;
+  }
 </style>
+
+<script>
+  // Share sheet logic — runs once, delegates via data attributes.
+  document.addEventListener("click", async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".share-trigger");
+    if (!btn) return;
+
+    const url = btn.dataset.shareUrl ?? location.href;
+    const text = btn.dataset.shareText ?? url;
+
+    // Native share on mobile
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: document.title, text, url });
+      } catch { /* cancelled */ }
+      return;
+    }
+
+    // Desktop: open the listing page in a new tab so they can use the share panel there
+    window.open(btn.dataset.listingUrl ?? url, "_blank", "noopener");
+  });
+</script>

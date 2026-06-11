@@ -1,22 +1,23 @@
-import type { DriverInput, GenderPref } from "./drivers";
+import type { RequestInput } from "./requests";
+import type { GenderPref } from "./drivers";
 
 function field(form: FormData, key: string): string {
   return (form.get(key)?.toString() ?? "").trim();
 }
 
-export interface ParseResult {
-  data?: DriverInput;
+export interface ParseRequestResult {
+  data?: RequestInput;
   error?: string;
 }
 
-export function parseDriverForm(form: FormData, ownerId: string): ParseResult {
+export function parseRequestForm(form: FormData, ownerId: string): ParseRequestResult {
   const name = field(form, "name");
   const phone = field(form, "phone");
   const fromLocation = field(form, "fromLocation");
   const toLocation = field(form, "toLocation");
 
   if (!name || !phone || !fromLocation || !toLocation) {
-    return { error: "Name, phone, start and destination are required." };
+    return { error: "Name, phone, pickup and destination are required." };
   }
 
   const coord = (key: string): number | null => {
@@ -24,34 +25,24 @@ export function parseDriverForm(form: FormData, ownerId: string): ParseResult {
     return Number.isFinite(n) ? n : null;
   };
 
-  const seats = Number.parseInt(field(form, "seats"), 10);
-
   const rawPref = field(form, "genderPref");
   const genderPref: GenderPref =
     rawPref === "female_only" || rawPref === "male_only" ? rawPref : "any";
 
-  const data: DriverInput = {
+  const data: RequestInput = {
     ownerId,
     name,
     phone,
-    carMake: field(form, "carMake"),
-    carModel: field(form, "carModel"),
-    carColor: field(form, "carColor"),
-    seats: Number.isFinite(seats) && seats > 0 ? seats : 1,
     fromLocation,
-    toLocation,
     fromLat: coord("fromLat"),
     fromLng: coord("fromLng"),
+    toLocation,
     toLat: coord("toLat"),
     toLng: coord("toLng"),
-    stops: field(form, "stops")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    departTime: field(form, "departTime"),
-    returnTime: field(form, "returnTime"),
+    departTimeFrom: field(form, "departTimeFrom"),
+    departTimeTo: field(form, "departTimeTo"),
     days: form.getAll("days").map((d) => d.toString()),
-    fare: field(form, "fare"),
+    budget: field(form, "budget"),
     notes: field(form, "notes"),
     genderPref,
   };

@@ -1,46 +1,76 @@
 import { getDb } from "./firebase";
+import { haversineKm, detourKm, pickupOnlyDetourKm, detourThresholdKm } from "./scoring";
+
+export type GenderPref = "any" | "female_only" | "male_only";
 
 export interface Driver {
   id: string;
-  ownerId: string; // Clerk user id
+  ownerId: string;
   name: string;
-  phone: string; // E.164-ish, used for tel: and WhatsApp links
+  phone: string;
   carMake: string;
   carModel: string;
   carColor: string;
   seats: number;
-  fromLocation: string; // home / start area
-  toLocation: string; // drop-off / destination area
-  // Coordinates set via the map picker. null when a listing predates the map.
+  fromLocation: string;
+  toLocation: string;
   fromLat: number | null;
   fromLng: number | null;
   toLat: number | null;
   toLng: number | null;
-  stops: string[]; // optional intermediate areas
-  departTime: string; // "08:00"
-  returnTime: string; // "17:30"
-  days: string[]; // ["Mon","Tue",...]
-  fare: string; // free text, e.g. "Rs 5000/month" or "Negotiable"
+  stops: string[];
+  departTime: string;
+  returnTime: string;
+  days: string[];
+  fare: string;
   notes: string;
+  genderPref: GenderPref;
   createdAt: number;
+  expiresAt: number;
+  lastRenewedAt?: number;
 }
 
-export type DriverInput = Omit<Driver, "id" | "createdAt">;
+export interface ScoredDriver {
+  driver: Driver;
+  detourKm: number | null;
+  isNearMiss?: boolean;
+}
+
+export type DriverInput = Omit<Driver, "id" | "createdAt" | "expiresAt" | "lastRenewedAt">;
+
+export interface SearchOpts {
+  fromLat?: number;
+  fromLng?: number;
+  toLat?: number;
+  toLng?: number;
+  fromText?: string;
+  toText?: string;
+  days?: string[];
+  genderPref?: string;
+}
 
 const COLLECTION = "drivers";
+const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function normalize(s: string): string {
   return s.trim().toLowerCase();
 }
 
+function resolveExpiresAt(d: Record<string, unknown>): number {
+  if (typeof d.expiresAt === "number") return d.expiresAt;
+  // Legacy listings: expire 30 days after creation.
+  return (typeof d.createdAt === "number" ? d.createdAt : 0) + EXPIRY_MS;
+}
+
 export async function createDriver(data: DriverInput): Promise<string> {
   const db = getDb();
+  const now = Date.now();
   const ref = await db.collection(COLLECTION).add({
     ...data,
-    // Lowercased fields kept for cheap case-insensitive matching.
     fromLocation_lc: normalize(data.fromLocation),
     toLocation_lc: normalize(data.toLocation),
-    createdAt: Date.now(),
+    createdAt: now,
+    expiresAt: now + EXPIRY_MS,
   });
   return ref.id;
 }
@@ -48,7 +78,7 @@ export async function createDriver(data: DriverInput): Promise<string> {
 function docToDriver(
   doc:
     | FirebaseFirestore.QueryDocumentSnapshot
-    | FirebaseFirestore.DocumentSnapshot
+    | FirebaseFirestore.DocumentSnapshot,
 ): Driver {
   const d = doc.data() ?? {};
   return {
@@ -72,8 +102,15 @@ function docToDriver(
     days: d.days ?? [],
     fare: d.fare ?? "",
     notes: d.notes ?? "",
+    genderPref: (d.genderPref as GenderPref) ?? "any",
     createdAt: d.createdAt ?? 0,
+    expiresAt: resolveExpiresAt(d),
+    lastRenewedAt: typeof d.lastRenewedAt === "number" ? d.lastRenewedAt : undefined,
   };
+}
+
+function isActive(driver: Driver): boolean {
+  return driver.expiresAt > Date.now();
 }
 
 export async function listDrivers(): Promise<Driver[]> {
@@ -82,9 +119,10 @@ export async function listDrivers(): Promise<Driver[]> {
     .collection(COLLECTION)
     .orderBy("createdAt", "desc")
     .get();
-  return snap.docs.map(docToDriver);
+  return snap.docs.map(docToDriver).filter(isActive);
 }
 
+/** Returns ALL listings for the owner, including expired, for their dashboard. */
 export async function getDriversByOwner(ownerId: string): Promise<Driver[]> {
   const db = getDb();
   const snap = await db
@@ -96,27 +134,80 @@ export async function getDriversByOwner(ownerId: string): Promise<Driver[]> {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/**
- * Substring search over from/to/stops. Firestore can't do substring queries,
- * so for this scale we read the collection and filter in memory. Either field
- * is optional; matching is an AND across whichever was provided.
- */
-export async function searchDrivers(
-  from?: string,
-  to?: string
-): Promise<Driver[]> {
-  const all = await listDrivers();
-  const f = from ? normalize(from) : "";
-  const t = to ? normalize(to) : "";
-  if (!f && !t) return all;
+export async function searchDrivers(opts: SearchOpts): Promise<ScoredDriver[]> {
+  const all = await listDrivers(); // already filtered for active
 
-  return all.filter((d) => {
-    const fromHay = [d.fromLocation, ...d.stops].map(normalize).join(" | ");
-    const toHay = [d.toLocation, ...d.stops].map(normalize).join(" | ");
-    const fromOk = !f || fromHay.includes(f);
-    const toOk = !t || toHay.includes(t);
-    return fromOk && toOk;
-  });
+  // Day filter.
+  let filtered = all;
+  if (opts.days && opts.days.length > 0) {
+    filtered = filtered.filter((d) =>
+      opts.days!.some((day) => d.days.includes(day)),
+    );
+  }
+
+  // Gender preference filter.
+  if (opts.genderPref && opts.genderPref !== "any") {
+    filtered = filtered.filter((d) => d.genderPref === opts.genderPref);
+  }
+
+  const hasFromCoords =
+    opts.fromLat != null && opts.fromLng != null &&
+    Number.isFinite(opts.fromLat) && Number.isFinite(opts.fromLng);
+  const hasToCoords =
+    opts.toLat != null && opts.toLng != null &&
+    Number.isFinite(opts.toLat) && Number.isFinite(opts.toLng);
+
+  // Coordinate-based detour scoring.
+  if (hasFromCoords) {
+    const pLat = opts.fromLat!;
+    const pLng = opts.fromLng!;
+
+    const withScores = filtered
+      .filter(
+        (d) =>
+          d.fromLat !== null && d.fromLng !== null &&
+          d.toLat !== null && d.toLng !== null,
+      )
+      .map((d) => {
+        const routeKm = haversineKm(d.fromLat!, d.fromLng!, d.toLat!, d.toLng!);
+        const threshold = detourThresholdKm(routeKm);
+        const km = hasToCoords
+          ? detourKm(d.fromLat!, d.fromLng!, d.toLat!, d.toLng!, pLat, pLng, opts.toLat!, opts.toLng!)
+          : pickupOnlyDetourKm(d.fromLat!, d.fromLng!, d.toLat!, d.toLng!, pLat, pLng);
+        return { driver: d, detourKm: km, threshold };
+      });
+
+    const matched = withScores
+      .filter(({ detourKm: km, threshold }) => km <= threshold)
+      .sort((a, b) => a.detourKm - b.detourKm)
+      .map(({ driver, detourKm: km }) => ({ driver, detourKm: km }));
+
+    if (matched.length > 0) return matched;
+
+    // Near-miss: zero matches — return 3 closest regardless of threshold.
+    return withScores
+      .sort((a, b) => a.detourKm - b.detourKm)
+      .slice(0, 3)
+      .map(({ driver, detourKm: km }) => ({ driver, detourKm: km, isNearMiss: true }));
+  }
+
+  // Text fallback.
+  const f = opts.fromText ? normalize(opts.fromText) : "";
+  const t = opts.toText ? normalize(opts.toText) : "";
+
+  if (!f && !t) {
+    return filtered.map((d) => ({ driver: d, detourKm: null }));
+  }
+
+  return filtered
+    .filter((d) => {
+      const fromHay = [d.fromLocation, ...d.stops].map(normalize).join(" | ");
+      const toHay = [d.toLocation, ...d.stops].map(normalize).join(" | ");
+      const fromOk = !f || fromHay.includes(f);
+      const toOk = !t || toHay.includes(t);
+      return fromOk && toOk;
+    })
+    .map((d) => ({ driver: d, detourKm: null }));
 }
 
 export async function getDriver(id: string): Promise<Driver | null> {
@@ -125,17 +216,15 @@ export async function getDriver(id: string): Promise<Driver | null> {
   return docToDriver(doc);
 }
 
-/** Updates a listing only if it belongs to `ownerId`. Returns false otherwise. */
 export async function updateDriver(
   id: string,
   ownerId: string,
-  data: DriverInput
+  data: DriverInput,
 ): Promise<boolean> {
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(id);
   const doc = await ref.get();
   if (!doc.exists || doc.data()?.ownerId !== ownerId) return false;
-  // ownerId and createdAt are preserved (not overwritten from the form).
   await ref.update({
     ...data,
     ownerId,
@@ -145,10 +234,17 @@ export async function updateDriver(
   return true;
 }
 
-export async function deleteDriver(
-  id: string,
-  ownerId: string
-): Promise<boolean> {
+export async function renewDriver(id: string, ownerId: string): Promise<boolean> {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(id);
+  const doc = await ref.get();
+  if (!doc.exists || doc.data()?.ownerId !== ownerId) return false;
+  const now = Date.now();
+  await ref.update({ expiresAt: now + EXPIRY_MS, lastRenewedAt: now });
+  return true;
+}
+
+export async function deleteDriver(id: string, ownerId: string): Promise<boolean> {
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(id);
   const doc = await ref.get();

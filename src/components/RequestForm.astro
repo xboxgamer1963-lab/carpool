@@ -1,0 +1,176 @@
+---
+import MapPicker from "./MapPicker.astro";
+import type { RiderRequest } from "../lib/requests";
+
+interface Props {
+  request?: RiderRequest;
+  action: string;
+  submitLabel: string;
+  defaultName?: string;
+}
+const { request: r, action, submitLabel, defaultName = "" } = Astro.props;
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const selectedDays = r?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
+const v = {
+  name: r?.name ?? defaultName,
+  phone: r?.phone ?? "",
+  fromLocation: r?.fromLocation ?? "",
+  toLocation: r?.toLocation ?? "",
+  departTimeFrom: r?.departTimeFrom || "08:00",
+  departTimeTo: r?.departTimeTo || "08:30",
+  budget: r?.budget ?? "",
+  genderPref: r?.genderPref ?? "any",
+  notes: r?.notes ?? "",
+};
+---
+
+<form class="form" method="POST" action={action}>
+  {r && <input type="hidden" name="id" value={r.id} />}
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">1</span><h2>About you</h2></div>
+    <div class="row">
+      <div class="field">
+        <label for="name">Your name</label>
+        <input id="name" name="name" required value={v.name} />
+      </div>
+      <div class="field">
+        <label for="phone">Phone (with country code)</label>
+        <input id="phone" name="phone" required value={v.phone} placeholder="+92 300 1234567" />
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">2</span><h2>Your route</h2></div>
+
+    <div class="field">
+      <label>Pin your pickup and destination on the map</label>
+      <MapPicker
+        fromLat={r?.fromLat ?? null}
+        fromLng={r?.fromLng ?? null}
+        toLat={r?.toLat ?? null}
+        toLng={r?.toLng ?? null}
+      />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="fromLocation">Pickup area</label>
+        <input id="fromLocation" name="fromLocation" required value={v.fromLocation} placeholder="Gulshan" />
+      </div>
+      <div class="field">
+        <label for="toLocation">Destination</label>
+        <input id="toLocation" name="toLocation" required value={v.toLocation} placeholder="Downtown office" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="departTimeFrom">Earliest departure</label>
+        <input id="departTimeFrom" name="departTimeFrom" type="time" value={v.departTimeFrom} required />
+      </div>
+      <div class="field">
+        <label for="departTimeTo">Latest departure</label>
+        <input id="departTimeTo" name="departTimeTo" type="time" value={v.departTimeTo} />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Days needed</label>
+      <div class="day-grid">
+        {
+          DAYS.map((day) => (
+            <label class="day">
+              <input type="checkbox" name="days" value={day} checked={selectedDays.includes(day)} />
+              <span>{day}</span>
+            </label>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="section-title"><span class="step-dot">3</span><h2>Preferences</h2></div>
+    <div class="row">
+      <div class="field">
+        <label for="budget">Budget / fare (optional)</label>
+        <input id="budget" name="budget" value={v.budget} placeholder="Rs 5000 / month" />
+      </div>
+      <div class="field">
+        <label for="genderPref">Driver preference</label>
+        <select id="genderPref" name="genderPref">
+          <option value="any" selected={v.genderPref === "any"}>No preference</option>
+          <option value="female_only" selected={v.genderPref === "female_only"}>Female drivers only</option>
+          <option value="male_only" selected={v.genderPref === "male_only"}>Male drivers only</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="notes">Notes (optional)</label>
+      <textarea id="notes" name="notes" rows="3" placeholder="Flexible on pickup point, prefer AC…">{v.notes}</textarea>
+    </div>
+  </section>
+
+  <div class="submit-bar">
+    <button type="submit" class="btn btn-primary">{submitLabel}</button>
+    <a href="/requests/mine" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+
+<style>
+  .form { display: flex; flex-direction: column; gap: 1.1rem; }
+  .section { padding: 1.4rem 1.5rem; }
+  .section-title { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.1rem; }
+  .section-title h2 { font-size: 1.15rem; }
+  .step-dot {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--amber-soft);
+    color: #7a4a10;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+  .field { flex: 1 1 13rem; margin-bottom: 1rem; }
+  .row .field { margin-bottom: 0; }
+  .section .field:last-child,
+  .section .row:last-child { margin-bottom: 0; }
+  .day-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .day { margin: 0; cursor: pointer; user-select: none; }
+  .day input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .day span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3rem;
+    padding: 0.5rem 0.7rem;
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--ink-2);
+    background: var(--paper-2);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .day input:checked + span {
+    background: linear-gradient(160deg, var(--amber) 25%, #b9661a);
+    border-color: #b9661a;
+    color: #fff;
+  }
+  .day input:focus-visible + span {
+    box-shadow: 0 0 0 3px rgba(216, 132, 42, 0.25);
+  }
+  .submit-bar { display: flex; gap: 0.6rem; margin-top: 0.25rem; }
+  @media (max-width: 480px) {
+    .submit-bar .btn { flex: 1; }
+  }
+</style>

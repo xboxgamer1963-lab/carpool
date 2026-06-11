@@ -2,14 +2,21 @@
 import Layout from "../layouts/Layout.astro";
 import DriverCard from "../components/DriverCard.astro";
 import { listDrivers, type Driver } from "../lib/drivers";
+import { listRequests } from "../lib/requests";
 
 // Live data powers the stats, popular routes and recent rides. Fails soft so the
 // page always renders even if Firestore is unreachable.
 let drivers: Driver[] = [];
+let requestCount = 0;
 try {
   drivers = await listDrivers();
 } catch {
   drivers = [];
+}
+try {
+  requestCount = (await listRequests()).length;
+} catch {
+  requestCount = 0;
 }
 
 const rideCount = drivers.length;
@@ -40,7 +47,7 @@ const recentRides = drivers.slice(0, 3);
 const stats = [
   { value: rideCount, label: "Rides on offer", suffix: "" },
   { value: seatCount, label: "Seats available", suffix: "" },
-  { value: areaCount, label: "Areas covered", suffix: "" },
+  { value: requestCount, label: "Riders looking", suffix: "" },
   { value: 0, label: "Commission charged", prefix: "", suffix: "%" },
 ];
 
@@ -233,7 +240,10 @@ const faqs = [
         <li>Set your days, times and fare</li>
         <li>Riders reach you on WhatsApp — you stay in control</li>
       </ul>
-      <a href="/drivers/register" class="btn btn-primary">Offer a ride</a>
+      <div class="split-actions">
+        <a href="/drivers/register" class="btn btn-primary">Offer a ride</a>
+        <a href="/requests" class="btn btn-ghost">Find riders</a>
+      </div>
     </article>
 
     <article class="split-card riders card" data-reveal style="--d:80ms">
@@ -244,11 +254,14 @@ const faqs = [
         to the planet, and a familiar face for the commute.
       </p>
       <ul class="ticks">
-        <li>Search by your home and destination</li>
-        <li>See drivers, seats, timings and fare upfront</li>
-        <li>Watch the route on an interactive map before you commit</li>
+        <li>Search by your home and destination — results ranked by route match</li>
+        <li>Filter for female-only carpools for extra safety</li>
+        <li>No driver found? Post a request so drivers come to you</li>
       </ul>
-      <a href="/drivers" class="btn btn-ghost">Find a ride</a>
+      <div class="split-actions">
+        <a href="/drivers" class="btn btn-ghost">Find a ride</a>
+        <a href="/requests/post" class="btn btn-ghost">Post a request</a>
+      </div>
     </article>
   </section>
 
@@ -907,6 +920,11 @@ const faqs = [
   }
   .riders .ticks li::before {
     background: var(--amber);
+  }
+  .split-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
   }
 
   /* ---------- Popular routes ---------- */

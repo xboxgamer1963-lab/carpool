@@ -1,0 +1,322 @@
+---
+import type { RiderRequest } from "../lib/requests";
+import { detourLabel } from "../lib/scoring";
+import { telHref, whatsappHref } from "../lib/contact";
+
+interface Props {
+  request: RiderRequest;
+  owned?: boolean;
+  detourKm?: number | null;
+  isNearMiss?: boolean;
+}
+const { request: r, owned = false, detourKm, isNearMiss = false } = Astro.props;
+
+const initial = (r.name.trim()[0] ?? "?").toUpperCase();
+
+const genderLabel =
+  r.genderPref === "female_only"
+    ? "Female only"
+    : r.genderPref === "male_only"
+    ? "Male only"
+    : null;
+
+const genderContext =
+  r.genderPref === "female_only" ? "female-only rider request" : "rider request";
+
+const waMessage =
+  `Hi ${r.name}, I saw your ${genderContext} from ${r.fromLocation} to ${r.toLocation} on Carpool. I drive that route — want to arrange a carpool?`;
+
+const now = Date.now();
+const lastActive = r.lastRenewedAt ? Math.max(r.createdAt, r.lastRenewedAt) : r.createdAt;
+const ageDays = Math.floor((now - lastActive) / 86400000);
+const freshLabel =
+  ageDays === 0 ? "Today" : ageDays === 1 ? "Yesterday" : `${ageDays} days ago`;
+
+const daysUntilExpiry = Math.floor((r.expiresAt - now) / 86400000);
+const nearExpiry = daysUntilExpiry >= 0 && daysUntilExpiry <= 5;
+const expired = daysUntilExpiry < 0 || r.status === "closed";
+
+const detourText = detourKm != null ? detourLabel(detourKm) : null;
+---
+
+<article class:list={["request-card", "card", { stale: nearExpiry && !expired }]}>
+  {isNearMiss && (
+    <div class="near-miss-banner">Nearest match — outside your exact route</div>
+  )}
+
+  <header class="head">
+    <span class="avatar rider">{initial}</span>
+    <div class="who">
+      <h3 class="name">{r.name}</h3>
+      <p class="type muted">Looking for a ride</p>
+    </div>
+    <div class="head-badges">
+      {r.budget && <span class="budget">{r.budget}</span>}
+      {genderLabel && (
+        <span class:list={["pref-badge", r.genderPref]}>{genderLabel}</span>
+      )}
+    </div>
+  </header>
+
+  <div class="route">
+    <div class="rail" aria-hidden="true">
+      <span class="dot start"></span>
+      <span class="line"></span>
+      <span class="dot end"></span>
+    </div>
+    <div class="legs">
+      <div class="leg">
+        <span class="loc">{r.fromLocation}</span>
+        {r.departTimeFrom && (
+          <span class="time muted">
+            {r.departTimeFrom}{r.departTimeTo ? `–${r.departTimeTo}` : ""}
+          </span>
+        )}
+      </div>
+      <div class="leg">
+        <span class="loc">{r.toLocation}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="chips">
+    {r.days.length > 0 && <span class="chip">{r.days.join(", ")}</span>}
+    {detourText && (
+      <span class:list={["chip", "detour-chip", { "on-the-way": detourKm! < 0.5 }]}>
+        {detourText}
+      </span>
+    )}
+  </div>
+
+  {r.notes && <p class="notes">{r.notes}</p>}
+
+  <div class="meta">
+    <span class="fresh muted">Posted {freshLabel}</span>
+    {nearExpiry && !expired && <span class="expiry-warn">Renewing soon</span>}
+    {expired && <span class="expiry-dead">{r.status === "closed" ? "Closed" : "Expired"}</span>}
+  </div>
+
+  <footer class="actions">
+    {
+      owned ? (
+        <>
+          {expired ? (
+            <form method="POST" action="/api/requests/renew">
+              <input type="hidden" name="id" value={r.id} />
+              <button type="submit" class="btn btn-primary btn-block">
+                Reopen request
+              </button>
+            </form>
+          ) : (
+            <>
+              {nearExpiry && (
+                <form method="POST" action="/api/requests/renew">
+                  <input type="hidden" name="id" value={r.id} />
+                  <button type="submit" class="btn btn-ghost btn-block renew">
+                    Renew 30 days
+                  </button>
+                </form>
+              )}
+              <form method="POST" action="/api/requests/close">
+                <input type="hidden" name="id" value={r.id} />
+                <button type="submit" class="btn btn-ghost btn-block danger">
+                  Close request
+                </button>
+              </form>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <a
+            class="btn btn-success"
+            href={whatsappHref(r.phone, waMessage)}
+            target="_blank"
+            rel="noopener"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.5-3.9-4.7-4.1-.1-.2-1-1.4-1-2.6 0-1.2.6-1.8.9-2 .2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.5c-.2.2-.3.4-.1.7.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.2.1.4.1.6-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.8 0 1.2Z" />
+            </svg>
+            WhatsApp
+          </a>
+          <a class="btn btn-ghost" href={telHref(r.phone)}>Call</a>
+        </>
+      )
+    }
+  </footer>
+</article>
+
+<style>
+  .request-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    transition:
+      transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
+  }
+  .request-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--line-2);
+  }
+  .request-card.stale { border-color: var(--amber-soft); }
+
+  .near-miss-banner {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--amber);
+    background: var(--amber-soft);
+    margin: -1.4rem -1.4rem 0;
+    padding: 0.35rem 1rem;
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: 1px solid rgba(216,132,42,0.2);
+  }
+
+  .head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    color: #fff;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+  }
+  .avatar.rider {
+    background: linear-gradient(150deg, var(--amber) 25%, #b9661a);
+  }
+  .who { min-width: 0; flex: 1; }
+  .name { font-size: 1.12rem; line-height: 1.15; }
+  .type { margin: 0.15rem 0 0; font-size: 0.84rem; }
+  .head-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+    flex-shrink: 0;
+  }
+  .budget {
+    background: var(--amber-soft);
+    color: #7a4a10;
+    font-weight: 700;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .pref-badge {
+    font-weight: 700;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .pref-badge.female_only { background: #fce8f3; color: #8b1a5a; }
+  .pref-badge.male_only { background: #e8f0fc; color: #1a3d8b; }
+
+  .route { display: flex; gap: 0.85rem; }
+  .rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 6px;
+  }
+  .rail .dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .rail .dot.start { background: var(--amber); }
+  .rail .dot.end { background: var(--green); }
+  .rail .line {
+    width: 2px;
+    flex: 1;
+    min-height: 26px;
+    margin: 2px 0;
+    background: repeating-linear-gradient(var(--line-2) 0 4px, transparent 4px 8px);
+  }
+  .legs { flex: 1; display: flex; flex-direction: column; gap: 0.55rem; }
+  .leg { display: flex; flex-direction: column; }
+  .loc { font-weight: 600; font-size: 0.98rem; }
+  .time { font-size: 0.78rem; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-pill);
+  }
+  .detour-chip {
+    background: var(--amber-soft);
+    color: #7a4a10;
+    border-color: rgba(216,132,42,0.3);
+  }
+  .detour-chip.on-the-way {
+    background: var(--green-soft);
+    color: var(--green-ink);
+    border-color: rgba(22,112,74,0.25);
+  }
+
+  .notes {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--ink-2);
+    background: var(--paper);
+    border-left: 2.5px solid var(--line-2);
+    padding: 0.55rem 0.75rem;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+
+  .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.76rem;
+  }
+  .fresh { font-size: 0.76rem; }
+  .expiry-warn {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #7a4a10;
+    background: var(--amber-soft);
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-pill);
+  }
+  .expiry-dead {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--danger);
+    background: var(--danger-soft);
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-pill);
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.55rem;
+    margin-top: auto;
+    padding-top: 0.25rem;
+    flex-wrap: wrap;
+  }
+  .actions form { margin: 0; flex: 1; }
+  .actions .btn-success { flex: 1; }
+  .danger { color: var(--danger); border-color: var(--danger-soft); }
+  .danger:hover { border-color: var(--danger); }
+  .renew { color: var(--green); border-color: var(--green-soft); }
+  .renew:hover { border-color: var(--green); }
+</style>
