@@ -1,43 +1,42 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import DriverCard from "../../components/DriverCard.astro";
-import { getDriversByOwner } from "../../lib/drivers";
+import RequestCard from "../../components/RequestCard.astro";
+import { getRequestsByOwner } from "../../lib/requests";
 
 const { userId } = Astro.locals.auth();
-const siteOrigin = new URL(Astro.request.url).origin;
-let allDrivers = [];
+let allRequests = [];
 let error: string | null = null;
 if (userId) {
   try {
-    allDrivers = await getDriversByOwner(userId);
+    allRequests = await getRequestsByOwner(userId);
   } catch (e) {
-    error = e instanceof Error ? e.message : "Could not load your rides.";
+    error = e instanceof Error ? e.message : "Could not load your requests.";
   }
 }
 
 const now = Date.now();
-const active = allDrivers.filter((d) => d.expiresAt > now);
-const expired = allDrivers.filter((d) => d.expiresAt <= now);
+const active = allRequests.filter((r) => r.status === "open" && r.expiresAt > now);
+const inactive = allRequests.filter((r) => r.status === "closed" || r.expiresAt <= now);
 ---
 
-<Layout title="My rides — Carpool">
+<Layout title="My requests — Carpool">
   <header class="page-head">
     <div>
-      <h1>My rides</h1>
-      <p class="muted sub">Listings you've published.</p>
+      <h1>My requests</h1>
+      <p class="muted sub">Rider requests you've posted.</p>
     </div>
-    <a href="/drivers/register" class="btn btn-primary">Offer another ride</a>
+    <a href="/requests/post" class="btn btn-primary">Post another request</a>
   </header>
 
   {
     error ? (
       <div class="card notice">{error}</div>
-    ) : allDrivers.length === 0 ? (
+    ) : allRequests.length === 0 ? (
       <div class="card notice">
-        <span class="notice-emoji" aria-hidden="true">🚗</span>
-        <h3>No rides yet</h3>
+        <span class="notice-emoji" aria-hidden="true">🙋</span>
+        <h3>No requests yet</h3>
         <p class="muted">
-          <a href="/drivers/register">Offer a ride</a> to let commuters find you.
+          <a href="/requests/post">Post a request</a> so drivers heading your way can find you.
         </p>
       </div>
     ) : (
@@ -45,19 +44,19 @@ const expired = allDrivers.filter((d) => d.expiresAt <= now);
         {active.length > 0 && (
           <section class="listing-section">
             <div class="grid">
-              {active.map((d) => (
-                <DriverCard driver={d} owned siteOrigin={siteOrigin} />
+              {active.map((r) => (
+                <RequestCard request={r} owned />
               ))}
             </div>
           </section>
         )}
 
-        {expired.length > 0 && (
+        {inactive.length > 0 && (
           <section class="listing-section expired-section">
-            <h2 class="section-heading muted">Expired listings</h2>
+            <h2 class="section-heading muted">Closed / expired requests</h2>
             <div class="grid">
-              {expired.map((d) => (
-                <DriverCard driver={d} owned />
+              {inactive.map((r) => (
+                <RequestCard request={r} owned />
               ))}
             </div>
           </section>
@@ -74,6 +73,7 @@ const expired = allDrivers.filter((d) => d.expiresAt <= now);
     justify-content: space-between;
     gap: 1rem;
     margin-bottom: 1.6rem;
+    flex-wrap: wrap;
   }
   .page-head h1 { font-size: clamp(1.9rem, 4vw, 2.5rem); }
   .page-head .sub { margin-top: 0.35rem; }

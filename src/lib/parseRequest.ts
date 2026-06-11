@@ -1,4 +1,5 @@
-import type { RequestInput, GenderPref } from "./requests";
+import type { RequestInput } from "./requests";
+import type { GenderPref } from "./drivers";
 
 function field(form: FormData, key: string): string {
   return (form.get(key)?.toString() ?? "").trim();
