@@ -1,70 +1,59 @@
 ---
-import type { Driver } from "../lib/drivers";
+import type { RiderRequest } from "../lib/requests";
 import { detourLabel } from "../lib/scoring";
 import { telHref, whatsappHref } from "../lib/contact";
 
 interface Props {
-  driver: Driver;
+  request: RiderRequest;
   owned?: boolean;
   detourKm?: number | null;
   isNearMiss?: boolean;
 }
-const { driver, owned = false, detourKm, isNearMiss = false } = Astro.props;
+const { request: r, owned = false, detourKm, isNearMiss = false } = Astro.props;
 
-const initial = (driver.name.trim()[0] ?? "?").toUpperCase();
+const initial = (r.name.trim()[0] ?? "?").toUpperCase();
 
 const genderLabel =
-  driver.genderPref === "female_only"
+  r.genderPref === "female_only"
     ? "Female only"
-    : driver.genderPref === "male_only"
+    : r.genderPref === "male_only"
     ? "Male only"
     : null;
 
 const genderContext =
-  driver.genderPref === "female_only" ? "female-only carpool" : null;
+  r.genderPref === "female_only" ? "female-only rider request" : "rider request";
 
 const waMessage =
-  `Hi ${driver.name}, I found your${genderContext ? ` ${genderContext}` : ""} listing from ${driver.fromLocation} to ${driver.toLocation} on Carpool. Is a seat available?`;
+  `Hi ${r.name}, I saw your ${genderContext} from ${r.fromLocation} to ${r.toLocation} on Carpool. I drive that route — want to arrange a carpool?`;
 
 const now = Date.now();
-const lastActive = driver.lastRenewedAt
-  ? Math.max(driver.createdAt, driver.lastRenewedAt)
-  : driver.createdAt;
-const ageMs = now - lastActive;
-const ageDays = Math.floor(ageMs / 86400000);
-const freshLabel = ageDays === 0
-  ? "Today"
-  : ageDays === 1
-  ? "Yesterday"
-  : `${ageDays} days ago`;
+const lastActive = r.lastRenewedAt ? Math.max(r.createdAt, r.lastRenewedAt) : r.createdAt;
+const ageDays = Math.floor((now - lastActive) / 86400000);
+const freshLabel =
+  ageDays === 0 ? "Today" : ageDays === 1 ? "Yesterday" : `${ageDays} days ago`;
 
-const daysUntilExpiry = Math.floor((driver.expiresAt - now) / 86400000);
+const daysUntilExpiry = Math.floor((r.expiresAt - now) / 86400000);
 const nearExpiry = daysUntilExpiry >= 0 && daysUntilExpiry <= 5;
-const expired = daysUntilExpiry < 0;
+const expired = daysUntilExpiry < 0 || r.status === "closed";
 
-const detourText =
-  detourKm != null ? detourLabel(detourKm) : null;
+const detourText = detourKm != null ? detourLabel(detourKm) : null;
 ---
 
-<article class:list={["driver", "card", { stale: nearExpiry && !expired }]}>
+<article class:list={["request-card", "card", { stale: nearExpiry && !expired }]}>
   {isNearMiss && (
     <div class="near-miss-banner">Nearest match — outside your exact route</div>
   )}
 
   <header class="head">
-    <span class="avatar">{initial}</span>
+    <span class="avatar rider">{initial}</span>
     <div class="who">
-      <h3 class="name">{driver.name}</h3>
-      <p class="car">
-        {[driver.carColor, driver.carMake, driver.carModel].filter(Boolean).join(" ")}
-      </p>
+      <h3 class="name">{r.name}</h3>
+      <p class="type muted">Looking for a ride</p>
     </div>
     <div class="head-badges">
-      {driver.fare && <span class="fare">{driver.fare}</span>}
+      {r.budget && <span class="budget">{r.budget}</span>}
       {genderLabel && (
-        <span class:list={["pref-badge", driver.genderPref]}>
-          {genderLabel}
-        </span>
+        <span class:list={["pref-badge", r.genderPref]}>{genderLabel}</span>
       )}
     </div>
   </header>
@@ -77,28 +66,21 @@ const detourText =
     </div>
     <div class="legs">
       <div class="leg">
-        <span class="loc">{driver.fromLocation}</span>
-        <span class="time muted">Departs {driver.departTime || "—"}</span>
-      </div>
-      {
-        driver.stops.length > 0 && (
-          <div class="via muted">via {driver.stops.join(" · ")}</div>
-        )
-      }
-      <div class="leg">
-        <span class="loc">{driver.toLocation}</span>
-        {driver.returnTime && (
-          <span class="time muted">Returns {driver.returnTime}</span>
+        <span class="loc">{r.fromLocation}</span>
+        {r.departTimeFrom && (
+          <span class="time muted">
+            {r.departTimeFrom}{r.departTimeTo ? `–${r.departTimeTo}` : ""}
+          </span>
         )}
+      </div>
+      <div class="leg">
+        <span class="loc">{r.toLocation}</span>
       </div>
     </div>
   </div>
 
   <div class="chips">
-    <span class="chip">
-      {driver.seats} {driver.seats === 1 ? "seat" : "seats"}
-    </span>
-    {driver.days.length > 0 && <span class="chip">{driver.days.join(", ")}</span>}
+    {r.days.length > 0 && <span class="chip">{r.days.join(", ")}</span>}
     {detourText && (
       <span class:list={["chip", "detour-chip", { "on-the-way": detourKm! < 0.5 }]}>
         {detourText}
@@ -106,44 +88,39 @@ const detourText =
     )}
   </div>
 
-  {driver.notes && <p class="notes">{driver.notes}</p>}
+  {r.notes && <p class="notes">{r.notes}</p>}
 
   <div class="meta">
-    <span class="fresh muted">{driver.lastRenewedAt ? "Renewed" : "Posted"} {freshLabel}</span>
-    {nearExpiry && !expired && (
-      <span class="expiry-warn">Renewing soon</span>
-    )}
-    {expired && <span class="expiry-dead">Expired</span>}
+    <span class="fresh muted">Posted {freshLabel}</span>
+    {nearExpiry && !expired && <span class="expiry-warn">Renewing soon</span>}
+    {expired && <span class="expiry-dead">{r.status === "closed" ? "Closed" : "Expired"}</span>}
   </div>
 
   <footer class="actions">
     {
       owned ? (
         <>
-          <a class="btn btn-ghost edit" href={`/drivers/edit/${driver.id}`}>
-            Edit
-          </a>
           {expired ? (
-            <form method="POST" action="/api/drivers/renew">
-              <input type="hidden" name="id" value={driver.id} />
+            <form method="POST" action="/api/requests/renew">
+              <input type="hidden" name="id" value={r.id} />
               <button type="submit" class="btn btn-primary btn-block">
-                Restore listing
+                Reopen request
               </button>
             </form>
           ) : (
             <>
               {nearExpiry && (
-                <form method="POST" action="/api/drivers/renew">
-                  <input type="hidden" name="id" value={driver.id} />
+                <form method="POST" action="/api/requests/renew">
+                  <input type="hidden" name="id" value={r.id} />
                   <button type="submit" class="btn btn-ghost btn-block renew">
                     Renew 30 days
                   </button>
                 </form>
               )}
-              <form method="POST" action="/api/drivers/delete">
-                <input type="hidden" name="id" value={driver.id} />
+              <form method="POST" action="/api/requests/close">
+                <input type="hidden" name="id" value={r.id} />
                 <button type="submit" class="btn btn-ghost btn-block danger">
-                  Delete
+                  Close request
                 </button>
               </form>
             </>
@@ -153,7 +130,7 @@ const detourText =
         <>
           <a
             class="btn btn-success"
-            href={whatsappHref(driver.phone, waMessage)}
+            href={whatsappHref(r.phone, waMessage)}
             target="_blank"
             rel="noopener"
           >
@@ -162,7 +139,7 @@ const detourText =
             </svg>
             WhatsApp
           </a>
-          <a class="btn btn-ghost" href={telHref(driver.phone)}>Call</a>
+          <a class="btn btn-ghost" href={telHref(r.phone)}>Call</a>
         </>
       )
     }
@@ -170,7 +147,7 @@ const detourText =
 </article>
 
 <style>
-  .driver {
+  .request-card {
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -179,14 +156,12 @@ const detourText =
       box-shadow 0.18s ease,
       border-color 0.18s ease;
   }
-  .driver:hover {
+  .request-card:hover {
     transform: translateY(-3px);
     box-shadow: var(--shadow-lg);
     border-color: var(--line-2);
   }
-  .driver.stale {
-    border-color: var(--amber-soft);
-  }
+  .request-card.stale { border-color: var(--amber-soft); }
 
   .near-miss-banner {
     font-size: 0.76rem;
@@ -215,22 +190,13 @@ const detourText =
     font-family: var(--font-display);
     font-weight: 700;
     font-size: 1.15rem;
-    background: linear-gradient(150deg, var(--green) 25%, var(--green-dk));
   }
-  .who {
-    min-width: 0;
-    flex: 1;
+  .avatar.rider {
+    background: linear-gradient(150deg, var(--amber) 25%, #b9661a);
   }
-  .name {
-    font-size: 1.12rem;
-    line-height: 1.15;
-  }
-  .car {
-    margin: 0.15rem 0 0;
-    font-size: 0.84rem;
-    color: var(--ink-2);
-    text-transform: capitalize;
-  }
+  .who { min-width: 0; flex: 1; }
+  .name { font-size: 1.12rem; line-height: 1.15; }
+  .type { margin: 0.15rem 0 0; font-size: 0.84rem; }
   .head-badges {
     display: flex;
     flex-direction: column;
@@ -238,9 +204,9 @@ const detourText =
     gap: 0.3rem;
     flex-shrink: 0;
   }
-  .fare {
-    background: var(--green-soft);
-    color: var(--green-ink);
+  .budget {
+    background: var(--amber-soft);
+    color: #7a4a10;
     font-weight: 700;
     font-size: 0.78rem;
     padding: 0.3rem 0.6rem;
@@ -254,20 +220,10 @@ const detourText =
     border-radius: var(--radius-pill);
     white-space: nowrap;
   }
-  .pref-badge.female_only {
-    background: #fce8f3;
-    color: #8b1a5a;
-  }
-  .pref-badge.male_only {
-    background: #e8f0fc;
-    color: #1a3d8b;
-  }
+  .pref-badge.female_only { background: #fce8f3; color: #8b1a5a; }
+  .pref-badge.male_only { background: #e8f0fc; color: #1a3d8b; }
 
-  /* Route timeline */
-  .route {
-    display: flex;
-    gap: 0.85rem;
-  }
+  .route { display: flex; gap: 0.85rem; }
   .rail {
     display: flex;
     flex-direction: column;
@@ -280,34 +236,21 @@ const detourText =
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .rail .dot.start { background: var(--green); }
-  .rail .dot.end { background: var(--amber); }
+  .rail .dot.start { background: var(--amber); }
+  .rail .dot.end { background: var(--green); }
   .rail .line {
     width: 2px;
     flex: 1;
     min-height: 26px;
     margin: 2px 0;
-    background: repeating-linear-gradient(
-      var(--line-2) 0 4px,
-      transparent 4px 8px
-    );
+    background: repeating-linear-gradient(var(--line-2) 0 4px, transparent 4px 8px);
   }
-  .legs {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
+  .legs { flex: 1; display: flex; flex-direction: column; gap: 0.55rem; }
   .leg { display: flex; flex-direction: column; }
   .loc { font-weight: 600; font-size: 0.98rem; }
   .time { font-size: 0.78rem; }
-  .via { font-size: 0.78rem; padding-left: 0.1rem; }
 
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip {
     font-size: 0.78rem;
     font-weight: 600;
@@ -370,26 +313,10 @@ const detourText =
     padding-top: 0.25rem;
     flex-wrap: wrap;
   }
-  .actions form {
-    margin: 0;
-    flex: 1;
-  }
-  .actions .btn-success,
-  .actions .edit {
-    flex: 1;
-  }
-  .danger {
-    color: var(--danger);
-    border-color: var(--danger-soft);
-  }
-  .danger:hover {
-    border-color: var(--danger);
-  }
-  .renew {
-    color: var(--green);
-    border-color: var(--green-soft);
-  }
-  .renew:hover {
-    border-color: var(--green);
-  }
+  .actions form { margin: 0; flex: 1; }
+  .actions .btn-success { flex: 1; }
+  .danger { color: var(--danger); border-color: var(--danger-soft); }
+  .danger:hover { border-color: var(--danger); }
+  .renew { color: var(--green); border-color: var(--green-soft); }
+  .renew:hover { border-color: var(--green); }
 </style>

@@ -30,6 +30,7 @@ const v = {
   departTime: driver?.departTime || "08:00",
   returnTime: driver?.returnTime || "17:30",
   fare: driver?.fare ?? "",
+  genderPref: driver?.genderPref ?? "any",
   notes: driver?.notes ?? "",
 };
 ---
@@ -132,6 +133,14 @@ const v = {
     <div class="field">
       <label for="fare">Fare / contribution</label>
       <input id="fare" name="fare" value={v.fare} placeholder="Rs 5000 / month, or Negotiable" />
+    </div>
+    <div class="field">
+      <label for="genderPref">Rider preference</label>
+      <select id="genderPref" name="genderPref">
+        <option value="any" selected={v.genderPref === "any"}>No preference</option>
+        <option value="female_only" selected={v.genderPref === "female_only"}>Female riders only</option>
+        <option value="male_only" selected={v.genderPref === "male_only"}>Male riders only</option>
+      </select>
     </div>
     <div class="field">
       <label for="notes">Notes (optional)</label>
