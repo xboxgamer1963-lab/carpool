@@ -6,6 +6,8 @@ interface Props {
 }
 const { drivers } = Astro.props;
 //ONLYME
+
+//creds
 // Only rides with coordinates can be plotted.
 const mapped = drivers
   .filter((d) => d.fromLat != null && d.fromLng != null)
