@@ -8,8 +8,16 @@ interface Props {
   owned?: boolean;
   detourKm?: number | null;
   isNearMiss?: boolean;
+  siteOrigin?: string;
 }
-const { driver, owned = false, detourKm, isNearMiss = false } = Astro.props;
+const { driver, owned = false, detourKm, isNearMiss = false, siteOrigin = "" } = Astro.props;
+
+const listingUrl = `${siteOrigin}/drivers/${driver.id}`;
+const daysLabel =
+  driver.days.length === 5 && ["Mon","Tue","Wed","Thu","Fri"].every(d => driver.days.includes(d))
+    ? "Mon–Fri"
+    : driver.days.join(", ");
+const shareText = `I'm driving from ${driver.fromLocation} to ${driver.toLocation} on ${daysLabel}. I have ${driver.seats} seat${driver.seats !== 1 ? "s" : ""} open — join my carpool:\n${listingUrl}`;
 
 const initial = (driver.name.trim()[0] ?? "?").toUpperCase();
 
@@ -120,6 +128,22 @@ const detourText =
     {
       owned ? (
         <>
+          {/* Share button — most prominent action for active listings */}
+          {!expired && (
+            <button
+              type="button"
+              class="btn btn-primary share-trigger"
+              data-share-text={shareText}
+              data-share-url={listingUrl}
+              data-listing-url={listingUrl}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+              Share
+            </button>
+          )}
           <a class="btn btn-ghost edit" href={`/drivers/edit/${driver.id}`}>
             Edit
           </a>
@@ -392,4 +416,29 @@ const detourText =
   .renew:hover {
     border-color: var(--green);
   }
+  .share-trigger {
+    flex-shrink: 0;
+  }
 </style>
+
+<script>
+  // Share sheet logic — runs once, delegates via data attributes.
+  document.addEventListener("click", async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".share-trigger");
+    if (!btn) return;
+
+    const url = btn.dataset.shareUrl ?? location.href;
+    const text = btn.dataset.shareText ?? url;
+
+    // Native share on mobile
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: document.title, text, url });
+      } catch { /* cancelled */ }
+      return;
+    }
+
+    // Desktop: open the listing page in a new tab so they can use the share panel there
+    window.open(btn.dataset.listingUrl ?? url, "_blank", "noopener");
+  });
+</script>

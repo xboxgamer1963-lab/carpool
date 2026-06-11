@@ -3,8 +3,11 @@ import { Show, UserButton, SignInButton } from "@clerk/astro/components";
 
 interface Props {
   title?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogUrl?: string;
 }
-const { title = "Carpool" } = Astro.props;
+const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
 ---
 
 <!doctype html>
@@ -23,6 +26,15 @@ const { title = "Carpool" } = Astro.props;
       rel="stylesheet"
     />
     <title>{title}</title>
+
+    {ogTitle && <meta property="og:title" content={ogTitle} />}
+    {ogDescription && <meta property="og:description" content={ogDescription} />}
+    {ogUrl && <meta property="og:url" content={ogUrl} />}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Carpool" />
+    {ogTitle && <meta name="twitter:card" content="summary" />}
+    {ogTitle && <meta name="twitter:title" content={ogTitle} />}
+    {ogDescription && <meta name="twitter:description" content={ogDescription} />}
 
     <!-- Google tag (gtag.js) -->
     <script
@@ -61,6 +73,7 @@ const { title = "Carpool" } = Astro.props;
 
         <nav class="nav">
           <a href="/drivers" class="nav-link">Browse rides</a>
+          <a href="/requests" class="nav-link">Riders looking</a>
           <Show when="signed-in">
             <a href="/drivers/mine" class="nav-link">My rides</a>
             <a href="/drivers/register" class="btn btn-primary btn-sm">
