@@ -1,0 +1,196 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+const siteOrigin = Astro.site?.toString().replace(/\/$/, "") ?? "";
+
+const aboutSchema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    name: "About Carpool",
+    url: `${siteOrigin}/about`,
+    mainEntity: {
+      "@type": "Organization",
+      name: "Carpool",
+      url: siteOrigin,
+      foundingLocation: { "@type": "Country", name: "Pakistan" },
+      description:
+        "A free, zero-commission carpool noticeboard for daily commuters in Pakistan. Built and maintained solo.",
+    },
+  },
+];
+---
+
+<Layout
+  title="About Carpool — built solo for Pakistani daily commuters"
+  description="Why Carpool exists, what it promises, and who runs it. A free, zero-commission noticeboard for daily commuters in Karachi, Lahore, Islamabad and beyond."
+  canonical="/about"
+  schema={aboutSchema}
+>
+  <article class="about">
+    <header class="about-head">
+      <span class="kicker">About</span>
+      <h1>Built solo, run for commuters.</h1>
+      <p class="lede">
+        Carpool is a free noticeboard for people who already commute the same
+        route every day. Drivers post where they're driving and when. Riders
+        search by their own pickup and destination, then contact the driver
+        directly. There's no app, no middleman, no commission, and no account
+        required to browse.
+      </p>
+    </header>
+
+    <section class="block">
+      <h2>Why I built it</h2>
+      <p>
+        Daily commuting in Pakistan is expensive. Ride-hailing apps are great
+        for occasional trips, but at five or six rides a week, the cost adds
+        up fast — and the apps weren't built to put two strangers heading the
+        same way together for a recurring journey.
+      </p>
+      <p>
+        Carpools already happen informally — neighbours, coworkers, school
+        parents. The problem isn't whether people want to share a ride; it's
+        finding someone already going your exact way at your exact time. That
+        coordination almost always happens through who-you-know — WhatsApp
+        groups, building boards, a friend-of-a-friend. If you don't know
+        anyone driving your route, you're out of luck.
+      </p>
+      <p>
+        Carpool is the public board. Anyone driving a regular route can post
+        it. Anyone needing a ride on a similar route can find it and reach
+        out — directly, on WhatsApp or by phone.
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>The promise</h2>
+      <ul class="promise">
+        <li>
+          <strong>Zero commission.</strong> Whatever you charge or contribute
+          for fuel is between you and the other person. We never take a cut
+          and never will.
+        </li>
+        <li>
+          <strong>Free to post, free to browse.</strong> No subscription, no
+          paywall, no premium tier.
+        </li>
+        <li>
+          <strong>No account needed to search.</strong> You only sign in when
+          you want to publish a ride as a driver.
+        </li>
+        <li>
+          <strong>Your phone number stays yours.</strong> It's only visible
+          on a listing you've chosen to publish — never sold, never used for
+          marketing.
+        </li>
+        <li>
+          <strong>Female-only carpools are first-class.</strong> Drivers and
+          riders can both filter for them. Safety is a feature, not an
+          afterthought.
+        </li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>Who runs it</h2>
+      <p>
+        Carpool is built and maintained by a single developer — me, working
+        on it on the side because the daily commute problem is one I live
+        with. There's no team, no investors, no growth quotas. That keeps
+        the product simple and keeps it free.
+      </p>
+      <p>
+        If something on the site is broken or annoying, the email below
+        lands directly in my inbox. Same goes for ideas, route suggestions,
+        and "you should add my city" requests.
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>How it stays free</h2>
+      <p>
+        Hosting and tile costs are tiny — the site runs on Netlify's free
+        tier and uses OpenStreetMap-derived map data with no paid API keys.
+        If volume ever grows enough that hosting costs become real, I'll add
+        an optional supporter tier before I'd ever charge a commission. The
+        marketplace itself stays free, always.
+      </p>
+    </section>
+
+    <section class="block contact">
+      <h2>Get in touch</h2>
+      <p>
+        Email <a href="mailto:hello@carpool.high-score.dev">hello@carpool.high-score.dev</a>
+        — feedback, bugs, route ideas, partnerships, everything.
+      </p>
+      <div class="about-actions">
+        <a href="/drivers/register" class="btn btn-primary">Offer a ride</a>
+        <a href="/drivers" class="btn btn-ghost">Find a ride</a>
+      </div>
+    </section>
+  </article>
+</Layout>
+
+<style>
+  .about {
+    max-width: 44rem;
+    margin: 0 auto;
+  }
+  .about-head {
+    margin-bottom: 2.5rem;
+  }
+  .kicker {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 0.55rem;
+  }
+  .about-head h1 {
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    font-weight: 800;
+  }
+  .lede {
+    margin: 1rem 0 0;
+    color: var(--ink-2);
+    font-size: 1.1rem;
+  }
+  .block {
+    padding: 1.8rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .block h2 {
+    font-size: 1.35rem;
+    margin-bottom: 0.85rem;
+  }
+  .block p {
+    margin: 0 0 0.85rem;
+    color: var(--ink-2);
+  }
+  .block p:last-child {
+    margin-bottom: 0;
+  }
+  .promise {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .promise li {
+    color: var(--ink-2);
+  }
+  .promise strong {
+    color: var(--ink);
+  }
+  .contact .about-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.1rem;
+  }
+</style>

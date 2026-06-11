@@ -3,7 +3,7 @@ import Layout from "../../layouts/Layout.astro";
 import DriverCard from "../../components/DriverCard.astro";
 import RouteMap from "../../components/RouteMap.astro";
 import { searchDrivers, type ScoredDriver } from "../../lib/drivers";
-import { CITIES } from "../../lib/cities";
+import { CITIES, getCity } from "../../lib/cities";
 
 const url = new URL(Astro.request.url);
 const p = url.searchParams;
@@ -50,12 +50,33 @@ const drivers = scored.map((s) => s.driver);
 const hasNearMiss = scored.some((s) => s.isNearMiss);
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const selectedCity = city ? getCity(city) : null;
+const pageTitle = selectedCity
+  ? `Carpool Rides in ${selectedCity.name} | Find a Shared Commute`
+  : "Find a carpool — browse rides across Pakistan | Carpool";
+const pageDescription = selectedCity
+  ? `${drivers.length} active carpool ${drivers.length === 1 ? "ride" : "rides"} in ${selectedCity.name}. Browse pickup areas, timings and seats — connect directly with the driver on WhatsApp. Zero commission.`
+  : "Search active carpool listings across Karachi, Lahore, Islamabad and more. Filter by city, days and route — contact drivers directly. Free, with zero commission.";
+
+// Canonicalize the unfiltered URL so query-string variants don't fragment authority.
+const canonicalPath = selectedCity ? `/${selectedCity.slug}` : "/drivers";
 ---
 
-<Layout title="Available rides — Carpool">
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  canonical={canonicalPath}
+>
   <header class="page-head">
     <div>
-      <h1>{hasQuery ? "Matching rides" : "Available rides"}</h1>
+      <h1>
+        {selectedCity
+          ? `Carpool rides in ${selectedCity.name}`
+          : hasQuery
+            ? "Matching rides"
+            : "Available carpool rides in Pakistan"}
+      </h1>
       <p class="muted sub">
         {
           error

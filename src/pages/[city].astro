@@ -1,0 +1,335 @@
+---
+import Layout from "../layouts/Layout.astro";
+import DriverCard from "../components/DriverCard.astro";
+import RouteMap from "../components/RouteMap.astro";
+import { searchDrivers } from "../lib/drivers";
+import { searchRequests } from "../lib/requests";
+import { getCity, CITIES } from "../lib/cities";
+import { popularRoutes } from "../lib/routes";
+
+const { city: slug } = Astro.params;
+const city = getCity(slug ?? null);
+
+if (!city) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+let scored = await searchDrivers({ city: city.slug }).catch(() => []);
+let requestCount = 0;
+try {
+  const reqs = await searchRequests({ city: city.slug });
+  requestCount = reqs.length;
+} catch {
+  requestCount = 0;
+}
+
+const drivers = scored.map((s) => s.driver);
+const rideCount = drivers.length;
+const seatCount = drivers.reduce((n, d) => n + (d.seats || 0), 0);
+
+// Surface the busiest pickup/drop-off areas as keyword-rich body copy.
+const areaCounts = new Map<string, number>();
+for (const d of drivers) {
+  for (const a of [d.fromLocation, d.toLocation, ...d.stops]) {
+    const key = a.trim();
+    if (!key) continue;
+    areaCounts.set(key, (areaCounts.get(key) ?? 0) + 1);
+  }
+}
+const topAreas = [...areaCounts.entries()]
+  .sort((a, b) => b[1] - a[1])
+  .slice(0, 8)
+  .map(([name]) => name);
+
+const otherCities = CITIES.filter((c) => c.slug !== city.slug);
+const cityRoutes = popularRoutes(drivers, { citySlug: city.slug, limit: 8 });
+
+const pageTitle = `Carpool ${city.name} — share your daily commute in ${city.name} | Free`;
+const pageDescription = rideCount > 0
+  ? `${rideCount} active carpool ${rideCount === 1 ? "ride" : "rides"} in ${city.name}${topAreas.length ? ` covering ${topAreas.slice(0, 3).join(", ")}` : ""}. Drivers post pickup, timings and fares. Connect directly on WhatsApp. Zero commission.`
+  : `Find or offer a daily carpool in ${city.name}. Drivers post their pickup, timings and fare — riders connect directly on WhatsApp. Zero commission, no middleman.`;
+
+const citySchema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Carpool", item: Astro.site?.toString() },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: city.name,
+        item: `${Astro.site?.toString().replace(/\/$/, "")}/${city.slug}`,
+      },
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    serviceType: "Carpooling",
+    name: `Carpool in ${city.name}`,
+    description: pageDescription,
+    areaServed: { "@type": "City", name: city.name, address: { "@type": "PostalAddress", addressCountry: "PK" } },
+    provider: { "@type": "Organization", name: "Carpool" },
+    offers: { "@type": "Offer", price: "0", priceCurrency: "PKR", description: "Zero commission" },
+  },
+];
+---
+
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  canonical={`/${city.slug}`}
+  schema={citySchema}
+>
+  <header class="city-head">
+    <span class="kicker">{city.name}</span>
+    <h1>Carpool rides in {city.name}</h1>
+    <p class="lede">
+      {rideCount > 0
+        ? `${rideCount} active ${rideCount === 1 ? "ride" : "rides"} and ${seatCount} ${seatCount === 1 ? "seat" : "seats"} available for daily commuters in ${city.name}. ${requestCount > 0 ? `${requestCount} ${requestCount === 1 ? "rider is" : "riders are"} also looking for a driver.` : ""}`
+        : `No carpools yet in ${city.name} — be the first to post a route. Listing is free and takes under a minute.`}
+    </p>
+    <div class="city-actions">
+      <a href={`/drivers/register?city=${city.slug}`} class="btn btn-primary">Offer a ride in {city.name}</a>
+      <a href={`/requests/post?city=${city.slug}`} class="btn btn-ghost">Post a rider request</a>
+    </div>
+  </header>
+
+  <section class="city-pitch card">
+    <h2>How carpooling works in {city.name}</h2>
+    <p>
+      Carpool is a free, zero-commission noticeboard for daily commuters in {city.name}. Drivers
+      already making the drive post their pickup area, drop-off, timings and a fare they're
+      comfortable with. Riders search by their own home and destination and contact the driver
+      directly on WhatsApp — there's no middleman taking a cut and no app account needed to browse.
+    </p>
+    {topAreas.length > 0 && (
+      <p>
+        <strong>Active pickup &amp; drop-off areas in {city.name}:</strong>{" "}
+        {topAreas.map((a, i) => (
+          <>
+            {i > 0 ? ", " : ""}
+            <a href={`/drivers?city=${city.slug}&from=${encodeURIComponent(a)}`}>{a}</a>
+          </>
+        ))}.
+      </p>
+    )}
+  </section>
+
+  {drivers.length > 0 ? (
+    <>
+      <RouteMap drivers={drivers} />
+
+      {cityRoutes.length > 0 && (
+        <section class="city-routes">
+          <h2 class="grid-head">Popular routes in {city.name}</h2>
+          <div class="route-grid">
+            {cityRoutes.map((r) => (
+              <a class="route-tile" href={r.href}>
+                <div class="rt-line">
+                  <span class="rt-dot start" />
+                  <span class="rt-track" />
+                  <span class="rt-dot end" />
+                </div>
+                <div class="rt-names">
+                  <strong>{r.from}</strong>
+                  <span class="muted">to {r.to}</span>
+                </div>
+                <span class="rt-count">{r.count}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <h2 class="grid-head">Active rides in {city.name}</h2>
+      <div class="grid">
+        {drivers.map((d) => (
+          <DriverCard driver={d} />
+        ))}
+      </div>
+    </>
+  ) : (
+    <div class="card notice">
+      <h2>Be the first driver in {city.name}</h2>
+      <p class="muted">
+        No carpools have been posted in {city.name} yet. If you commute the same route most days,
+        listing your ride lets nearby riders find you — it's free and takes under a minute.
+      </p>
+      <a href={`/drivers/register?city=${city.slug}`} class="btn btn-primary">Offer a ride</a>
+    </div>
+  )}
+
+  <section class="other-cities band">
+    <h2>Carpooling in other cities</h2>
+    <ul class="city-list">
+      {otherCities.map((c) => (
+        <li><a href={`/${c.slug}`}>Carpool {c.name}</a></li>
+      ))}
+    </ul>
+  </section>
+</Layout>
+
+<style>
+  .city-head {
+    margin: 0.5rem 0 2rem;
+  }
+  .kicker {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 0.55rem;
+  }
+  .city-head h1 {
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    font-weight: 800;
+  }
+  .lede {
+    max-width: 44rem;
+    margin: 0.9rem 0 1.4rem;
+    color: var(--ink-2);
+    font-size: 1.05rem;
+  }
+  .city-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .city-pitch {
+    margin-bottom: 1.75rem;
+  }
+  .city-pitch h2 {
+    font-size: 1.25rem;
+    margin-bottom: 0.6rem;
+  }
+  .city-pitch p {
+    margin: 0 0 0.7rem;
+    color: var(--ink-2);
+  }
+  .city-pitch p:last-child {
+    margin: 0;
+  }
+  .grid-head {
+    font-size: 1.2rem;
+    margin: 1.5rem 0 0.85rem;
+  }
+  .grid {
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+  .city-routes {
+    margin: 1.5rem 0 0;
+  }
+  .route-grid {
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  .route-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 0.9rem 1rem;
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform 0.16s ease,
+      border-color 0.16s ease,
+      box-shadow 0.16s ease;
+  }
+  .route-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--line-2);
+    box-shadow: var(--shadow);
+    text-decoration: none;
+  }
+  .rt-line {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .rt-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .rt-dot.start {
+    background: var(--green);
+  }
+  .rt-dot.end {
+    background: var(--amber);
+  }
+  .rt-track {
+    width: 2px;
+    height: 16px;
+    margin: 1px 0;
+    background: repeating-linear-gradient(
+      var(--line-2) 0 3px,
+      transparent 3px 6px
+    );
+  }
+  .rt-names {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .rt-names strong {
+    color: var(--ink);
+  }
+  .rt-names .muted {
+    font-size: 0.82rem;
+  }
+  .rt-count {
+    margin-left: auto;
+    background: var(--green-soft);
+    color: var(--green-ink);
+    font-weight: 700;
+    font-size: 0.8rem;
+    min-width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+  }
+  .notice {
+    text-align: center;
+    padding: 2.2rem 1.5rem;
+  }
+  .notice h2 {
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .notice .btn {
+    margin-top: 0.9rem;
+  }
+  .other-cities {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  .other-cities h2 {
+    font-size: 1.2rem;
+    margin-bottom: 0.7rem;
+  }
+  .city-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.1rem;
+    font-size: 0.95rem;
+  }
+  .band {
+    padding: 1rem 0;
+  }
+</style>

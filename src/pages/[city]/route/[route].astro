@@ -1,0 +1,315 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import DriverCard from "../../../components/DriverCard.astro";
+import RouteMap from "../../../components/RouteMap.astro";
+import { listDrivers } from "../../../lib/drivers";
+import { getCity } from "../../../lib/cities";
+import {
+  parseRouteSlug,
+  driversForRoute,
+  popularRoutes,
+  titleCaseSlug,
+} from "../../../lib/routes";
+
+const { city: citySlugParam, route: routeSlugParam } = Astro.params;
+
+const city = getCity(citySlugParam ?? null);
+if (!city) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+const parsed = parseRouteSlug(routeSlugParam ?? "");
+if (!parsed) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+let allDrivers = await listDrivers().catch(() => []);
+const drivers = driversForRoute(
+  allDrivers,
+  city.slug,
+  parsed.fromSlug,
+  parsed.toSlug,
+);
+
+// 404 if no driver currently serves this route — avoids creating empty
+// doorway pages that Google would (rightly) downrank.
+if (drivers.length === 0) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+const fromDisplay = drivers[0].fromLocation || titleCaseSlug(parsed.fromSlug);
+const toDisplay = drivers[0].toLocation || titleCaseSlug(parsed.toSlug);
+
+const seatCount = drivers.reduce((n, d) => n + (d.seats || 0), 0);
+const fares = drivers.map((d) => d.fare).filter(Boolean);
+const departTimes = drivers.map((d) => d.departTime).filter(Boolean);
+
+// Sibling routes in the same city (excluding this one).
+const related = popularRoutes(allDrivers, { citySlug: city.slug, limit: 12 })
+  .filter((r) => r.slug !== `${parsed.fromSlug}-to-${parsed.toSlug}`)
+  .slice(0, 6);
+
+const siteOrigin = Astro.site?.toString().replace(/\/$/, "") ?? "";
+const pagePath = `/${city.slug}/route/${parsed.fromSlug}-to-${parsed.toSlug}`;
+
+const pageTitle = `Carpool ${fromDisplay} to ${toDisplay} in ${city.name} | Free Daily Commute`;
+const pageDescription =
+  drivers.length === 1
+    ? `1 driver offering a daily carpool from ${fromDisplay} to ${toDisplay} in ${city.name}. ${departTimes[0] ? `Departs ${departTimes[0]}. ` : ""}${fares[0] ? `Fare: ${fares[0]}. ` : ""}Contact directly on WhatsApp — zero commission.`
+    : `${drivers.length} drivers offering a daily carpool from ${fromDisplay} to ${toDisplay} in ${city.name}, ${seatCount} ${seatCount === 1 ? "seat" : "seats"} available. ${departTimes.length ? `Departures from ${departTimes.sort()[0]}. ` : ""}Contact directly on WhatsApp — zero commission.`;
+
+const routeSchema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Carpool", item: siteOrigin },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: city.name,
+        item: `${siteOrigin}/${city.slug}`,
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: `${fromDisplay} to ${toDisplay}`,
+        item: `${siteOrigin}${pagePath}`,
+      },
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    serviceType: "Carpooling",
+    name: `Carpool from ${fromDisplay} to ${toDisplay}, ${city.name}`,
+    description: pageDescription,
+    areaServed: {
+      "@type": "City",
+      name: city.name,
+      address: { "@type": "PostalAddress", addressCountry: "PK" },
+    },
+    provider: { "@type": "Organization", name: "Carpool" },
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "PKR",
+      description: "Zero commission marketplace",
+    },
+  },
+];
+---
+
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  canonical={pagePath}
+  schema={routeSchema}
+>
+  <nav class="crumbs muted">
+    <a href="/">Carpool</a> ›
+    <a href={`/${city.slug}`}>{city.name}</a> ›
+    <span>{fromDisplay} → {toDisplay}</span>
+  </nav>
+
+  <header class="route-head">
+    <span class="kicker">Daily commute</span>
+    <h1>Carpool from {fromDisplay} to {toDisplay} in {city.name}</h1>
+    <p class="lede">
+      {drivers.length === 1
+        ? `1 active driver`
+        : `${drivers.length} active drivers`} with {seatCount} {seatCount === 1 ? "seat" : "seats"} available on this route.
+      Contact them directly on WhatsApp — there's no fee and no account needed to reach out.
+    </p>
+  </header>
+
+  <RouteMap drivers={drivers} />
+
+  <section class="rides">
+    <h2>Drivers on this route</h2>
+    <div class="grid">
+      {drivers.map((d) => (
+        <DriverCard driver={d} />
+      ))}
+    </div>
+  </section>
+
+  <section class="route-pitch card">
+    <h2>Looking for a carpool from {fromDisplay} to {toDisplay}?</h2>
+    <p>
+      If you commute between {fromDisplay} and {toDisplay} in {city.name} on a
+      regular basis, the drivers listed above are likely heading the same way
+      at the same time as you. Every ride card has a direct WhatsApp button
+      and a phone number — there's no in-app messaging, no waiting on a
+      match algorithm, and no commission added to the fare.
+    </p>
+    <p>
+      Don't see a driver on your exact schedule?{" "}
+      <a href={`/requests/post?city=${city.slug}`}>
+        Post a rider request
+      </a>{" "}
+      and drivers heading your way can reach out to you.
+    </p>
+  </section>
+
+  {related.length > 0 && (
+    <section class="related band">
+      <h2>Other popular routes in {city.name}</h2>
+      <div class="related-grid">
+        {related.map((r) => (
+          <a class="related-tile" href={r.href}>
+            <div class="rt-line">
+              <span class="rt-dot start" />
+              <span class="rt-track" />
+              <span class="rt-dot end" />
+            </div>
+            <div class="rt-names">
+              <strong>{r.from}</strong>
+              <span class="muted">to {r.to}</span>
+            </div>
+            <span class="rt-count">{r.count}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )}
+</Layout>
+
+<style>
+  .crumbs {
+    font-size: 0.85rem;
+    margin-bottom: 1.2rem;
+  }
+  .crumbs a {
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+  .crumbs a:hover {
+    color: var(--ink);
+  }
+  .route-head {
+    margin-bottom: 1.5rem;
+  }
+  .kicker {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 0.55rem;
+  }
+  .route-head h1 {
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 800;
+  }
+  .lede {
+    max-width: 44rem;
+    margin: 0.85rem 0 0;
+    color: var(--ink-2);
+    font-size: 1.05rem;
+  }
+  .rides h2,
+  .route-pitch h2,
+  .related h2 {
+    font-size: 1.25rem;
+    margin: 1.5rem 0 0.85rem;
+  }
+  .grid {
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+  .route-pitch {
+    margin: 1.75rem 0;
+  }
+  .route-pitch p {
+    margin: 0 0 0.85rem;
+    color: var(--ink-2);
+  }
+  .route-pitch p:last-child {
+    margin: 0;
+  }
+  .related {
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
+  .related-grid {
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  .related-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 0.9rem 1rem;
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform 0.16s ease,
+      border-color 0.16s ease,
+      box-shadow 0.16s ease;
+  }
+  .related-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--line-2);
+    box-shadow: var(--shadow);
+    text-decoration: none;
+  }
+  .rt-line {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .rt-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .rt-dot.start {
+    background: var(--green);
+  }
+  .rt-dot.end {
+    background: var(--amber);
+  }
+  .rt-track {
+    width: 2px;
+    height: 16px;
+    margin: 1px 0;
+    background: repeating-linear-gradient(
+      var(--line-2) 0 3px,
+      transparent 3px 6px
+    );
+  }
+  .rt-names {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .rt-names strong {
+    color: var(--ink);
+  }
+  .rt-names .muted {
+    font-size: 0.82rem;
+  }
+  .rt-count {
+    margin-left: auto;
+    background: var(--green-soft);
+    color: var(--green-ink);
+    font-weight: 700;
+    font-size: 0.8rem;
+    min-width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+  }
+  .band {
+    padding: 1rem 0;
+  }
+</style>

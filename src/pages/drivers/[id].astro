@@ -21,8 +21,8 @@ const daysLabel =
 // The share message drivers copy/send
 const shareText = `I'm driving from ${driver.fromLocation} to ${driver.toLocation} on ${daysLabel}. I have ${driver.seats} seat${driver.seats !== 1 ? "s" : ""} open — join my carpool:\n${listingUrl}`;
 
-const ogTitle = `${driver.seats} seat${driver.seats !== 1 ? "s" : ""} available: ${driver.fromLocation} → ${driver.toLocation}`;
-const ogDescription = `${driver.name} is driving from ${driver.fromLocation} to ${driver.toLocation} on ${daysLabel}. Departs ${driver.departTime || "—"}. ${driver.fare ? `Fare: ${driver.fare}.` : ""} Contact directly on Carpool.`;
+const pageTitle = `${driver.seats} seat${driver.seats !== 1 ? "s" : ""} available: ${driver.fromLocation} → ${driver.toLocation} — Carpool`;
+const pageDescription = `${driver.name} is driving from ${driver.fromLocation} to ${driver.toLocation} on ${daysLabel}. Departs ${driver.departTime || "—"}. ${driver.fare ? `Fare: ${driver.fare}.` : ""} Contact directly on Carpool — zero commission.`;
 
 const waHref = whatsappHref(driver.phone, `Hi ${driver.name}, I found your ride from ${driver.fromLocation} to ${driver.toLocation} on Carpool. Is a seat still available?`);
 
@@ -36,10 +36,9 @@ const genderLabel =
 ---
 
 <Layout
-  title={`${driver.fromLocation} → ${driver.toLocation} — Carpool`}
-  ogTitle={ogTitle}
-  ogDescription={ogDescription}
-  ogUrl={listingUrl}
+  title={pageTitle}
+  description={pageDescription}
+  canonical={`/drivers/${driver.id}`}
 >
   <!-- Back link -->
   <a href="/drivers" class="back-link muted">← All rides</a>

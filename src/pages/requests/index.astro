@@ -2,7 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import RequestCard from "../../components/RequestCard.astro";
 import { searchRequests, type ScoredRequest } from "../../lib/requests";
-import { CITIES } from "../../lib/cities";
+import { CITIES, getCity } from "../../lib/cities";
 
 const url = new URL(Astro.request.url);
 const p = url.searchParams;
@@ -42,9 +42,21 @@ try {
 
 const hasNearMiss = scored.some((s) => s.isNearMiss);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const selectedCity = city ? getCity(city) : null;
+const pageTitle = selectedCity
+  ? `Riders looking for a carpool in ${selectedCity.name} | Carpool`
+  : "Riders looking for a carpool — Pakistan | Carpool";
+const pageDescription = selectedCity
+  ? `${scored.length} ${scored.length === 1 ? "rider is" : "riders are"} looking for a daily carpool in ${selectedCity.name}. Drivers heading the same way can connect directly — zero commission.`
+  : "Riders posting their pickup, destination and schedule — drivers heading the same way can connect directly on WhatsApp. Zero commission, no middleman.";
 ---
 
-<Layout title="Riders looking — Carpool">
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  canonical="/requests"
+>
   <header class="page-head">
     <div>
       <h1>Riders looking for a driver</h1>

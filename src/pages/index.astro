@@ -3,6 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import DriverCard from "../components/DriverCard.astro";
 import { listDrivers, type Driver } from "../lib/drivers";
 import { listRequests } from "../lib/requests";
+import { popularRoutes } from "../lib/routes";
 
 // Live data powers the stats, popular routes and recent rides. Fails soft so the
 // page always renders even if Firestore is unreachable.
@@ -29,18 +30,8 @@ const areaCount = new Set(
   )
 ).size;
 
-// Most-offered routes, for quick-search chips.
-const routeCounts = new Map<string, { from: string; to: string; n: number }>();
-for (const d of drivers) {
-  if (!d.fromLocation || !d.toLocation) continue;
-  const key = `${d.fromLocation.toLowerCase()}→${d.toLocation.toLowerCase()}`;
-  const cur = routeCounts.get(key);
-  if (cur) cur.n++;
-  else routeCounts.set(key, { from: d.fromLocation, to: d.toLocation, n: 1 });
-}
-const popularRoutes = [...routeCounts.values()]
-  .sort((a, b) => b.n - a.n)
-  .slice(0, 6);
+// Most-offered routes (city-scoped, so each links to its indexable route page).
+const popular = popularRoutes(drivers, { limit: 6 });
 
 const recentRides = drivers.slice(0, 3);
 
@@ -69,9 +60,57 @@ const faqs = [
     a: "Drivers pin their exact pickup and drop-off on a map when they register, so what you see on the map is where they actually start and end.",
   },
 ];
+
+const howSteps = [
+  {
+    n: "01",
+    t: "Drivers register",
+    d: "Car owners sign in and pin their car, route, timings and a contact number in under a minute.",
+  },
+  {
+    n: "02",
+    t: "Riders search",
+    d: "Search by home and drop-off to instantly see drivers heading your way on your schedule.",
+  },
+  {
+    n: "03",
+    t: "Connect directly",
+    d: "Call or WhatsApp the driver and finalise the arrangement between yourselves. No middleman.",
+  },
+];
+
+const homepageSchema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: "How Carpool works",
+    description:
+      "Three steps to share a daily commute on Carpool — register, search, connect.",
+    step: howSteps.map((s, i) => ({
+      "@type": "HowToStep",
+      position: i + 1,
+      name: s.t,
+      text: s.d,
+    })),
+  },
+];
 ---
 
-<Layout title="Carpool — share your daily commute">
+<Layout
+  title="Carpool — Pakistan's free carpooling marketplace"
+  description="Share your daily commute in Karachi, Lahore, Islamabad and beyond. Drivers post their routes, riders find matches, and you connect on WhatsApp — zero commission, no middleman."
+  canonical="/"
+  schema={homepageSchema}
+>
   <!-- ================= HERO ================= -->
   <section class="hero">
     <div class="hero-copy" data-reveal>
@@ -109,14 +148,11 @@ const faqs = [
       </form>
 
       {
-        popularRoutes.length > 0 && (
+        popular.length > 0 && (
           <div class="quick-routes">
             <span class="muted">Popular:</span>
-            {popularRoutes.slice(0, 4).map((r) => (
-              <a
-                class="route-chip"
-                href={`/drivers?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`}
-              >
+            {popular.slice(0, 4).map((r) => (
+              <a class="route-chip" href={r.href}>
                 {r.from} → {r.to}
               </a>
             ))}
@@ -182,7 +218,7 @@ const faqs = [
       stats.map((s) => (
         <div class="stat">
           <span class="stat-num" data-count={s.value} data-suffix={s.suffix ?? ""}>
-            {s.prefix ?? ""}0{s.suffix ?? ""}
+            {s.prefix ?? ""}{s.value}{s.suffix ?? ""}
           </span>
           <span class="stat-label muted">{s.label}</span>
         </div>
@@ -199,23 +235,7 @@ const faqs = [
     </header>
     <div class="steps">
       {
-        [
-          {
-            n: "01",
-            t: "Drivers register",
-            d: "Car owners sign in and pin their car, route, timings and a contact number in under a minute.",
-          },
-          {
-            n: "02",
-            t: "Riders search",
-            d: "Search by home and drop-off to instantly see drivers heading your way on your schedule.",
-          },
-          {
-            n: "03",
-            t: "Connect directly",
-            d: "Call or WhatsApp the driver and finalise the arrangement between yourselves. No middleman.",
-          },
-        ].map((s, i) => (
+        howSteps.map((s, i) => (
           <article class="card step" data-reveal style={`--d:${i * 80}ms`}>
             <span class="num">{s.n}</span>
             <h3>{s.t}</h3>
@@ -267,7 +287,7 @@ const faqs = [
 
   <!-- ================= POPULAR ROUTES ================= -->
   {
-    popularRoutes.length > 0 && (
+    popular.length > 0 && (
       <section class="band">
         <header class="section-head" data-reveal>
           <span class="kicker">Trending</span>
@@ -275,11 +295,8 @@ const faqs = [
           <p class="muted">Where the carpools are heading right now.</p>
         </header>
         <div class="route-grid" data-reveal>
-          {popularRoutes.map((r) => (
-            <a
-              class="route-tile"
-              href={`/drivers?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`}
-            >
+          {popular.map((r) => (
+            <a class="route-tile" href={r.href}>
               <div class="rt-line">
                 <span class="rt-dot start" />
                 <span class="rt-track" />
@@ -289,7 +306,7 @@ const faqs = [
                 <strong>{r.from}</strong>
                 <span class="muted">to {r.to}</span>
               </div>
-              <span class="rt-count">{r.n}</span>
+              <span class="rt-count">{r.count}</span>
             </a>
           ))}
         </div>
@@ -427,37 +444,9 @@ const faqs = [
     revealEls.forEach((el) => io.observe(el));
   }
 
-  // Animated stat counters
-  const counters = document.querySelectorAll<HTMLElement>(".stat-num[data-count]");
-  const animate = (el: HTMLElement) => {
-    const target = Number(el.dataset.count || "0");
-    const suffix = el.dataset.suffix || "";
-    if (reduce || target === 0) {
-      el.textContent = `${target}${suffix}`;
-      return;
-    }
-    const dur = 1200;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      el.textContent = `${Math.round(target * eased)}${suffix}`;
-      if (t < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  };
-  const cio = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          animate(e.target as HTMLElement);
-          cio.unobserve(e.target);
-        }
-      });
-    },
-    { threshold: 0.5 }
-  );
-  counters.forEach((c) => cio.observe(c));
+  // Stat counters are server-rendered with their real values so crawlers
+  // (and users without JS) see the right numbers — no count-up animation
+  // is needed here.
 
   // "Find rides near me" — capture location, then hand coords to the browse page.
   const nearBtn = document.getElementById("near-me");

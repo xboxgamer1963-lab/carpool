@@ -2,12 +2,65 @@
 import { Show, UserButton, SignInButton } from "@clerk/astro/components";
 
 interface Props {
+  /** Browser tab + og:title. Should be unique per page. */
   title?: string;
-  ogTitle?: string;
-  ogDescription?: string;
-  ogUrl?: string;
+  /** Meta description + og:description. Should be unique per page. */
+  description?: string;
+  /** Canonical URL path or full URL. Defaults to the current pathname. */
+  canonical?: string;
+  /** Optional page-specific JSON-LD (FAQPage, HowTo, ItemList, etc.) */
+  schema?: unknown[];
+  /** Override the default OG image. */
+  ogImage?: string;
 }
-const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
+
+const {
+  title = "Carpool — Pakistan's free carpooling marketplace",
+  description = "Share your daily commute in Karachi, Lahore, Islamabad and beyond. Drivers offer empty seats, riders find a route — zero commission, no middleman.",
+  canonical,
+  schema = [],
+  ogImage,
+} = Astro.props;
+
+const siteOrigin = Astro.site?.toString().replace(/\/$/, "") ?? "";
+const canonicalUrl = canonical
+  ? canonical.startsWith("http")
+    ? canonical
+    : `${siteOrigin}${canonical}`
+  : `${siteOrigin}${Astro.url.pathname}`;
+
+const ogImageUrl = ogImage
+  ? ogImage.startsWith("http")
+    ? ogImage
+    : `${siteOrigin}${ogImage}`
+  : undefined;
+
+// Always-on entity declarations: who the site is + that it has a search box.
+const baseSchema: unknown[] = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Carpool",
+    url: siteOrigin,
+    slogan: "Drive together. Spend less. Arrive happier.",
+    description:
+      "A zero-commission carpooling marketplace for Pakistani commuters. Drivers post their routes, riders find matches, and the two connect directly on WhatsApp.",
+    areaServed: { "@type": "Country", name: "Pakistan" },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Carpool",
+    url: siteOrigin,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${siteOrigin}/drivers?from={search_term_string}`,
+      "query-input": "required name=search_term_string",
+    },
+  },
+];
+
+const allSchema = [...baseSchema, ...schema];
 ---
 
 <!doctype html>
@@ -15,10 +68,8 @@ const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Find a carpool or offer rides on your daily commute. Drive together, spend less."
-    />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -27,14 +78,20 @@ const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
     />
     <title>{title}</title>
 
-    {ogTitle && <meta property="og:title" content={ogTitle} />}
-    {ogDescription && <meta property="og:description" content={ogDescription} />}
-    {ogUrl && <meta property="og:url" content={ogUrl} />}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Carpool" />
-    {ogTitle && <meta name="twitter:card" content="summary" />}
-    {ogTitle && <meta name="twitter:title" content={ogTitle} />}
-    {ogDescription && <meta name="twitter:description" content={ogDescription} />}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    {ogImageUrl && <meta property="og:image" content={ogImageUrl} />}
+    <meta name="twitter:card" content={ogImageUrl ? "summary_large_image" : "summary"} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    {ogImageUrl && <meta name="twitter:image" content={ogImageUrl} />}
+
+    {allSchema.map((s) => (
+      <script type="application/ld+json" is:inline set:html={JSON.stringify(s)} />
+    ))}
 
     <!-- Google tag (gtag.js) -->
     <script
@@ -97,7 +154,13 @@ const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
     <footer class="site-footer">
       <div class="footer-inner">
         <span class="footer-brand">Carpool</span>
-        <span class="muted">Drive together. Spend less. Arrive happier.</span>
+        <span class="muted footer-tag">Drive together. Spend less. Arrive happier.</span>
+        <nav class="footer-nav">
+          <a href="/about">About</a>
+          <a href="/drivers">Find a ride</a>
+          <a href="/drivers/register">Offer a ride</a>
+          <a href="mailto:hello@carpool.high-score.dev">Contact</a>
+        </nav>
       </div>
     </footer>
 
@@ -406,6 +469,27 @@ const { title = "Carpool", ogTitle, ogDescription, ogUrl } = Astro.props;
         font-family: var(--font-display);
         font-weight: 800;
         letter-spacing: -0.02em;
+      }
+      .footer-tag {
+        margin-right: auto;
+      }
+      .footer-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1rem;
+      }
+      .footer-nav a {
+        color: var(--ink-2);
+        font-weight: 600;
+      }
+      .footer-nav a:hover {
+        color: var(--ink);
+      }
+      @media (max-width: 560px) {
+        .footer-tag {
+          margin-right: 0;
+          flex-basis: 100%;
+        }
       }
 
       /* Clerk component theming hooks */
