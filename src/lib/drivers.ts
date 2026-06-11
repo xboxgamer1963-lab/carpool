@@ -12,6 +12,7 @@ export interface Driver {
   carModel: string;
   carColor: string;
   seats: number;
+  city: string;
   fromLocation: string;
   toLocation: string;
   fromLat: number | null;
@@ -90,6 +91,7 @@ function docToDriver(
     carModel: d.carModel ?? "",
     carColor: d.carColor ?? "",
     seats: d.seats ?? 0,
+    city: d.city ?? "",
     fromLocation: d.fromLocation ?? "",
     toLocation: d.toLocation ?? "",
     fromLat: typeof d.fromLat === "number" ? d.fromLat : null,

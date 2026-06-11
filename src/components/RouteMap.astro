@@ -81,11 +81,10 @@ const hiddenCount = drivers.length - mapped.length;
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [67.0, 24.86],
       zoom: 11,
-      attributionControl: { compact: true },
     });
     map.scrollZoom.disable();
     map.addControl(
-      new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
+      new maplibregl.NavigationControl({ showCompass: false }),
       "top-right"
     );
 
@@ -190,6 +189,8 @@ const hiddenCount = drivers.length - mapped.length;
     // Layers/sources must be added after the style finishes loading.
     if (map.isStyleLoaded()) initMap();
     else map.once("load", initMap);
+    // MapLibre needs a size recalculation once the container is laid out.
+    setTimeout(() => map.resize(), 200);
 
     function focusRide(r: Ride) {
       const car = carMarkers[r.id];

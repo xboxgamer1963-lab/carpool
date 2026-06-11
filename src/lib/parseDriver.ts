@@ -38,6 +38,7 @@ export function parseDriverForm(form: FormData, ownerId: string): ParseResult {
     carModel: field(form, "carModel"),
     carColor: field(form, "carColor"),
     seats: Number.isFinite(seats) && seats > 0 ? seats : 1,
+    city: field(form, "city"),
     fromLocation,
     toLocation,
     fromLat: coord("fromLat"),

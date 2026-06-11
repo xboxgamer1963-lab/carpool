@@ -2,13 +2,17 @@
 // Interactive pickup/drop-off picker. Expects the surrounding <form> to contain
 // text inputs with ids `fromLocation` and `toLocation`; it keeps them in sync and
 // emits hidden lat/lng inputs that the create/update endpoints read.
+//
+// The parent form should provide a city slug (see lib/cities.ts) and dispatch a
+// `carpool:city-change` window event when the city <select> changes.
 interface Props {
+  city?: string | null;
   fromLat?: number | null;
   fromLng?: number | null;
   toLat?: number | null;
   toLng?: number | null;
 }
-const { fromLat, fromLng, toLat, toLng } = Astro.props;
+const { city, fromLat, fromLng, toLat, toLng } = Astro.props;
 ---
 
 <div class="picker">
@@ -39,10 +43,10 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
     </div>
   </div>
 
-  <div class="pick-canvas" id="pick-map"></div>
+  <div class="pick-canvas" id="pick-map" data-initial-city={city ?? ""}></div>
   <p class="pick-hint muted">
-    Click the map or drag a pin to set the point you're placing. Coordinates are
-    saved automatically.
+    Click the map or drag a pin to set the point you're placing. Once both pins
+    are placed we'll draw the actual road route between them.
   </p>
 
   <input type="hidden" name="fromLat" id="fromLat" value={fromLat ?? ""} />
@@ -54,6 +58,7 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
 <script>
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
+  import { getCity, CITIES } from "../lib/cities";
 
   const el = document.getElementById("pick-map") as HTMLElement | null;
   if (el) {
@@ -66,17 +71,23 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
     const toName = $("toLocation");
 
     let mode: "from" | "to" = "from";
+    let currentCity = getCity(el.dataset.initialCity || null);
+
+    const DEFAULT_CENTER: [number, number] = currentCity
+      ? currentCity.center
+      : CITIES[0].center;
+    const DEFAULT_ZOOM = 11;
 
     const map = new maplibregl.Map({
       container: el,
       style: "https://tiles.openfreemap.org/styles/positron",
-      center: [67.0, 24.86],
-      zoom: 11,
-      attributionControl: { compact: true },
+      center: DEFAULT_CENTER,
+      zoom: DEFAULT_ZOOM,
+      maxBounds: currentCity?.bounds,
     });
     map.scrollZoom.disable();
     map.addControl(
-      new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
+      new maplibregl.NavigationControl({ showCompass: false }),
       "top-right"
     );
 
@@ -96,41 +107,129 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       draggable: true,
       anchor: "bottom",
     })
-      .setLngLat([0, 0])
+      .setLngLat(DEFAULT_CENTER)
       .addTo(map);
     const toMarker = new maplibregl.Marker({
       element: toPinEl,
       draggable: true,
       anchor: "bottom",
     })
-      .setLngLat([0, 0])
+      .setLngLat(DEFAULT_CENTER)
       .addTo(map);
 
     let fromPlaced = false;
     let toPlaced = false;
 
-    const linkSourceId = "link-line";
-    const linkLayerId = "link-line-layer";
+    const ROUTE_SRC = "route-line";
+    const ROUTE_LYR = "route-line-layer";
 
-    const ensureLinkLayer = () => {
-      if (map.getSource(linkSourceId)) return;
-      map.addSource(linkSourceId, {
+    const ensureRouteLayer = () => {
+      if (map.getSource(ROUTE_SRC)) return;
+      map.addSource(ROUTE_SRC, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
-        id: linkLayerId,
+        id: ROUTE_LYR,
         type: "line",
-        source: linkSourceId,
-        layout: { "line-cap": "round" },
+        source: ROUTE_SRC,
+        layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": "#16704a",
-          "line-width": 2.5,
-          "line-opacity": 0.4,
-          "line-dasharray": [2, 4],
+          "line-width": 4,
+          "line-opacity": 0.85,
         },
       });
     };
+
+    function setRouteData(coords: [number, number][] | null) {
+      const src = map.getSource(ROUTE_SRC) as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (!src) return;
+      if (!coords || coords.length < 2) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      src.setData({
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: coords },
+          },
+        ],
+      });
+    }
+
+    function setStraightFallback() {
+      // While we wait for OSRM (or if it fails) show a faint dashed line so
+      // the driver at least sees their two stops are connected.
+      if (!map.getLayer(ROUTE_LYR)) return;
+      const a = fromMarker.getLngLat();
+      const b = toMarker.getLngLat();
+      setRouteData([
+        [a.lng, a.lat],
+        [b.lng, b.lat],
+      ]);
+      map.setPaintProperty(ROUTE_LYR, "line-opacity", 0.35);
+      map.setPaintProperty(ROUTE_LYR, "line-width", 2.5);
+      map.setPaintProperty(ROUTE_LYR, "line-dasharray", [2, 4]);
+    }
+
+    function setSolidRoute(coords: [number, number][]) {
+      if (!map.getLayer(ROUTE_LYR)) return;
+      setRouteData(coords);
+      map.setPaintProperty(ROUTE_LYR, "line-opacity", 0.85);
+      map.setPaintProperty(ROUTE_LYR, "line-width", 4);
+      // Clear dash by setting to a long-on/no-off pattern.
+      map.setPaintProperty(ROUTE_LYR, "line-dasharray", [1, 0]);
+    }
+
+    function clearRoute() {
+      setRouteData(null);
+    }
+
+    // ---- OSRM road route fetching --------------------------------------
+    let routeReq = 0;
+    let routeTimer: number | undefined;
+    async function refreshRoute() {
+      if (!fromPlaced || !toPlaced) {
+        clearRoute();
+        return;
+      }
+      setStraightFallback();
+      window.clearTimeout(routeTimer);
+      routeTimer = window.setTimeout(async () => {
+        const reqId = ++routeReq;
+        const a = fromMarker.getLngLat();
+        const b = toMarker.getLngLat();
+        const url =
+          `https://router.project-osrm.org/route/v1/driving/` +
+          `${a.lng.toFixed(6)},${a.lat.toFixed(6)};` +
+          `${b.lng.toFixed(6)},${b.lat.toFixed(6)}` +
+          `?overview=full&geometries=geojson`;
+        try {
+          const res = await fetch(url, { headers: { Accept: "application/json" } });
+          if (!res.ok) return; // keep the straight-line fallback
+          const data = await res.json();
+          // Ignore stale responses if another request started after this one.
+          if (reqId !== routeReq) return;
+          const coords = data?.routes?.[0]?.geometry?.coordinates as
+            | [number, number][]
+            | undefined;
+          if (!coords || coords.length < 2) return;
+          setSolidRoute(coords);
+          // Fit to the route, not just the endpoints, so curves are visible.
+          const b2 = new maplibregl.LngLatBounds();
+          coords.forEach((c) => b2.extend(c));
+          map.fitBounds(b2, { padding: 50, maxZoom: 14, duration: 400 });
+        } catch {
+          /* keep the straight-line fallback */
+        }
+      }, 350);
+    }
 
     function setPoint(
       which: "from" | "to",
@@ -151,39 +250,8 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
         toLat.value = lat.toFixed(6);
         toLng.value = lng.toFixed(6);
       }
-      redrawLink();
-      // Skip reverse geocoding when seeding existing data, so we don't clobber
-      // the names the driver already saved.
+      refreshRoute();
       if (!silent) reverseGeocode(which, lat, lng);
-    }
-
-    function redrawLink() {
-      const src = map.getSource(linkSourceId) as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      if (!src) return;
-      if (fromPlaced && toPlaced) {
-        const a = fromMarker.getLngLat();
-        const b = toMarker.getLngLat();
-        src.setData({
-          type: "FeatureCollection",
-          features: [
-            {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "LineString",
-                coordinates: [
-                  [a.lng, a.lat],
-                  [b.lng, b.lat],
-                ],
-              },
-            },
-          ],
-        });
-      } else {
-        src.setData({ type: "FeatureCollection", features: [] });
-      }
     }
 
     // Mode toggle
@@ -214,9 +282,19 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       setPoint("to", p.lat, p.lng);
     });
 
-    // ---- Geocoding (Nominatim) -----------------------------------------
+    // ---- Geocoding (Nominatim, biased to the current city) -------------
     async function geocode(q: string) {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+      const params = new URLSearchParams({
+        format: "json",
+        limit: "1",
+        q,
+      });
+      if (currentCity) {
+        const [[swLng, swLat], [neLng, neLat]] = currentCity.bounds;
+        params.set("viewbox", `${swLng},${neLat},${neLng},${swLat}`);
+        params.set("bounded", "1");
+      }
+      const url = `https://nominatim.openstreetmap.org/search?${params}`;
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       const data = await res.json();
       return data[0]
@@ -267,7 +345,6 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       }
     });
 
-    // Drop the active pin at the driver's current location.
     document.getElementById("geo-me")?.addEventListener("click", () => {
       if (!navigator.geolocation) return;
       const btn = document.getElementById("geo-me") as HTMLButtonElement;
@@ -286,11 +363,24 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
       );
     });
 
+    // ---- React to the parent form's city <select> ----------------------
+    window.addEventListener("carpool:city-change", (ev) => {
+      const slug = (ev as CustomEvent).detail?.slug as string | undefined;
+      const next = getCity(slug ?? null);
+      currentCity = next;
+      if (!next) {
+        map.setMaxBounds(null);
+        return;
+      }
+      // Set bounds first so flyTo can't fight them, then ease into the new view.
+      map.setMaxBounds(null);
+      map.flyTo({ center: next.center, zoom: 11, duration: 700 });
+      map.once("moveend", () => map.setMaxBounds(next.bounds));
+    });
+
     // ---- Seed existing pins + initial view -----------------------------
-    // Layers can only be added after the style loads; seed inside the load
-    // handler so the link line shows up correctly.
     const onReady = () => {
-      ensureLinkLayer();
+      ensureRouteLayer();
 
       const seedFrom =
         fromLat.value && fromLng.value
@@ -318,8 +408,8 @@ const { fromLat, fromLng, toLat, toLng } = Astro.props;
         } else {
           map.jumpTo({ center: [pts[0][1], pts[0][0]], zoom: 14 });
         }
-      } else if (navigator.geolocation) {
-        // No existing data: default city is already set; try to center on driver.
+      } else if (!currentCity && navigator.geolocation) {
+        // No city + no seed: try geolocation as a soft default.
         navigator.geolocation.getCurrentPosition(
           (pos) =>
             map.jumpTo({

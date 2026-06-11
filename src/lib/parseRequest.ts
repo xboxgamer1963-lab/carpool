@@ -33,6 +33,7 @@ export function parseRequestForm(form: FormData, ownerId: string): ParseRequestR
     ownerId,
     name,
     phone,
+    city: field(form, "city"),
     fromLocation,
     fromLat: coord("fromLat"),
     fromLng: coord("fromLng"),

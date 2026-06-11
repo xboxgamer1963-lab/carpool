@@ -7,6 +7,7 @@ export interface RiderRequest {
   ownerId: string;
   name: string;
   phone: string;
+  city: string;
   fromLocation: string;
   fromLat: number | null;
   fromLng: number | null;
@@ -52,6 +53,7 @@ function docToRequest(
     ownerId: d.ownerId ?? "",
     name: d.name ?? "",
     phone: d.phone ?? "",
+    city: d.city ?? "",
     fromLocation: d.fromLocation ?? "",
     fromLat: typeof d.fromLat === "number" ? d.fromLat : null,
     fromLng: typeof d.fromLng === "number" ? d.fromLng : null,

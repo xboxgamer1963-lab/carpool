@@ -1,6 +1,7 @@
 ---
 import MapPicker from "./MapPicker.astro";
 import type { RiderRequest } from "../lib/requests";
+import { CITIES, detectCity } from "../lib/cities";
 
 interface Props {
   request?: RiderRequest;
@@ -13,9 +14,15 @@ const { request: r, action, submitLabel, defaultName = "" } = Astro.props;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const selectedDays = r?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
+const detected =
+  r?.fromLat != null && r?.fromLng != null
+    ? detectCity(r.fromLat, r.fromLng)?.slug ?? ""
+    : "";
+
 const v = {
   name: r?.name ?? defaultName,
   phone: r?.phone ?? "",
+  city: r?.city || detected,
   fromLocation: r?.fromLocation ?? "",
   toLocation: r?.toLocation ?? "",
   departTimeFrom: r?.departTimeFrom || "08:00",
@@ -47,8 +54,23 @@ const v = {
     <div class="section-title"><span class="step-dot">2</span><h2>Your route</h2></div>
 
     <div class="field">
+      <label for="city">Your city</label>
+      <select id="city" name="city" required data-city-select>
+        <option value="" disabled selected={!v.city}>Choose a city…</option>
+        {
+          CITIES.map((c) => (
+            <option value={c.slug} selected={v.city === c.slug}>
+              {c.name}
+            </option>
+          ))
+        }
+      </select>
+    </div>
+
+    <div class="field">
       <label>Pin your pickup and destination on the map</label>
       <MapPicker
+        city={v.city}
         fromLat={r?.fromLat ?? null}
         fromLng={r?.fromLng ?? null}
         toLat={r?.toLat ?? null}
@@ -120,6 +142,16 @@ const v = {
     <a href="/requests/mine" class="btn btn-ghost">Cancel</a>
   </div>
 </form>
+
+<script>
+  document.querySelectorAll<HTMLSelectElement>("[data-city-select]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      window.dispatchEvent(
+        new CustomEvent("carpool:city-change", { detail: { slug: sel.value } })
+      );
+    });
+  });
+</script>
 
 <style>
   .form { display: flex; flex-direction: column; gap: 1.1rem; }

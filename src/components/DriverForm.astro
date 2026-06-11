@@ -1,6 +1,7 @@
 ---
 import MapPicker from "./MapPicker.astro";
 import type { Driver } from "../lib/drivers";
+import { CITIES, detectCity } from "../lib/cities";
 
 interface Props {
   /** Existing listing when editing; omitted when creating. */
@@ -17,6 +18,12 @@ const { driver, action, submitLabel, defaultName = "" } = Astro.props;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const selectedDays = driver?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
+// Auto-detect city for legacy listings created before the field existed.
+const detected =
+  driver?.fromLat != null && driver?.fromLng != null
+    ? detectCity(driver.fromLat, driver.fromLng)?.slug ?? ""
+    : "";
+
 const v = {
   name: driver?.name ?? defaultName,
   phone: driver?.phone ?? "",
@@ -24,6 +31,7 @@ const v = {
   carModel: driver?.carModel ?? "",
   carColor: driver?.carColor ?? "",
   seats: driver?.seats ?? 3,
+  city: driver?.city || detected,
   fromLocation: driver?.fromLocation ?? "",
   toLocation: driver?.toLocation ?? "",
   stops: driver?.stops?.join(", ") ?? "",
@@ -80,8 +88,23 @@ const v = {
     <div class="section-title"><span class="step-dot">3</span><h2>Route &amp; timings</h2></div>
 
     <div class="field">
+      <label for="city">Your city</label>
+      <select id="city" name="city" required data-city-select>
+        <option value="" disabled selected={!v.city}>Choose a city…</option>
+        {
+          CITIES.map((c) => (
+            <option value={c.slug} selected={v.city === c.slug}>
+              {c.name}
+            </option>
+          ))
+        }
+      </select>
+    </div>
+
+    <div class="field">
       <label>Pin your route on the map</label>
       <MapPicker
+        city={v.city}
         fromLat={driver?.fromLat ?? null}
         fromLng={driver?.fromLng ?? null}
         toLat={driver?.toLat ?? null}
@@ -153,6 +176,17 @@ const v = {
     <a href="/drivers/mine" class="btn btn-ghost">Cancel</a>
   </div>
 </form>
+
+<script>
+  // Tell the MapPicker when the driver picks a new city.
+  document.querySelectorAll<HTMLSelectElement>("[data-city-select]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      window.dispatchEvent(
+        new CustomEvent("carpool:city-change", { detail: { slug: sel.value } })
+      );
+    });
+  });
+</script>
 
 <style>
   .form {
