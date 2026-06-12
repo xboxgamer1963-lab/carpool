@@ -112,6 +112,12 @@ const detourText =
         {detourText}
       </span>
     )}
+    {driver.ratingAvg != null && driver.ratingCount && driver.ratingCount > 0 && (
+      <span class="chip rating-chip" title={`${driver.ratingAvg.toFixed(1)} from ${driver.ratingCount} rating${driver.ratingCount !== 1 ? "s" : ""}`}>
+        <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><polygon points="10,1 12.9,7 19.5,7.6 14.5,12 16.2,18.5 10,15 3.8,18.5 5.5,12 0.5,7.6 7.1,7" fill="#f5a623"/></svg>
+        {driver.ratingAvg.toFixed(1)}
+      </span>
+    )}
   </div>
 
   {driver.notes && <p class="notes">{driver.notes}</p>}
@@ -350,6 +356,14 @@ const detourText =
     background: var(--green-soft);
     color: var(--green-ink);
     border-color: rgba(22,112,74,0.25);
+  }
+  .rating-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #fffbf0;
+    border-color: rgba(245,166,35,0.35);
+    color: #7a5c10;
   }
 
   .notes {

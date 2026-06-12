@@ -30,6 +30,8 @@ export interface Driver {
   createdAt: number;
   expiresAt: number;
   lastRenewedAt?: number;
+  ratingAvg?: number;
+  ratingCount?: number;
 }
 
 export interface ScoredDriver {
@@ -110,6 +112,8 @@ function docToDriver(
     createdAt: d.createdAt ?? 0,
     expiresAt: resolveExpiresAt(d),
     lastRenewedAt: typeof d.lastRenewedAt === "number" ? d.lastRenewedAt : undefined,
+    ratingAvg: typeof d.ratingAvg === "number" ? d.ratingAvg : undefined,
+    ratingCount: typeof d.ratingCount === "number" ? d.ratingCount : undefined,
   };
 }
 
