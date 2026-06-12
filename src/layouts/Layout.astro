@@ -70,6 +70,12 @@ const allSchema = [...baseSchema, ...schema];
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/carpool-icon.png?v=2" sizes="any" />
     <link rel="apple-touch-icon" href="/carpool-icon.png?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#16704a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Carpool" />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -498,5 +504,13 @@ const allSchema = [...baseSchema, ...schema];
         }
       }
     </style>
+
+    <script is:inline>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

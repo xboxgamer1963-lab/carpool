@@ -389,6 +389,78 @@ const homepageSchema = [
     </div>
   </section>
 
+  <!-- ================= GET THE APP ================= -->
+  <section class="band app-band" data-reveal>
+    <div class="app-inner">
+      <div class="app-copy">
+        <span class="kicker">Now on Android</span>
+        <h2>Carpool in your pocket</h2>
+        <p class="muted">
+          Add Carpool to your Android home screen for one-tap access — no app store, no download, no waiting.
+          Works offline too.
+        </p>
+
+        <ol class="install-steps">
+          <li>
+            <span class="step-num">1</span>
+            Open <strong>carpool.high-score.dev</strong> in Chrome
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            Tap the <strong>⋮ menu</strong> (top right)
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            Tap <strong>"Add to Home screen"</strong>
+          </li>
+        </ol>
+
+        <button class="btn btn-primary install-btn" id="pwa-install-btn" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+            <path d="M12 15V3m0 12-4-4m4 4 4-4"/><rect x="2" y="17" width="20" height="4" rx="2"/>
+          </svg>
+          Install app
+        </button>
+        <p class="install-fallback muted" id="pwa-fallback">
+          Open this site in <strong>Chrome on Android</strong> and tap ⋮ → "Add to Home screen".
+        </p>
+      </div>
+
+      <div class="app-visual" aria-hidden="true">
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="phone-status-bar"></div>
+            <div class="phone-app-icon">
+              <img src="/carpool-icon.png" alt="" width="72" height="72" />
+            </div>
+            <p class="phone-app-name">Carpool</p>
+            <div class="phone-chips">
+              <span class="phone-chip green">Browse rides</span>
+              <span class="phone-chip amber">Post request</span>
+            </div>
+            <div class="phone-card-mock">
+              <div class="mock-avatar">A</div>
+              <div class="mock-info">
+                <strong>Ayesha · Corolla</strong>
+                <span>Gulshan → Clifton</span>
+              </div>
+              <span class="mock-badge">3 seats</span>
+            </div>
+            <div class="phone-card-mock">
+              <div class="mock-avatar">Z</div>
+              <div class="mock-info">
+                <strong>Zain · Civic</strong>
+                <span>DHA → Downtown</span>
+              </div>
+              <span class="mock-badge">2 seats</span>
+            </div>
+          </div>
+          <div class="phone-home-bar"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ================= FAQ ================= -->
   <section class="band faq-band">
     <header class="section-head" data-reveal>
@@ -424,6 +496,11 @@ const homepageSchema = [
 </Layout>
 
 <script>
+  interface BeforeInstallPromptEvent extends Event {
+    prompt(): Promise<void>;
+    userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+  }
+
   // Scroll reveal
   const revealEls = document.querySelectorAll<HTMLElement>("[data-reveal]");
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -469,6 +546,33 @@ const homepageSchema = [
       },
       { enableHighAccuracy: true, timeout: 8000 }
     );
+  });
+
+  // PWA install prompt
+  let deferredPrompt: BeforeInstallPromptEvent | null = null;
+  const installBtn = document.getElementById("pwa-install-btn") as HTMLButtonElement | null;
+  const fallbackMsg = document.getElementById("pwa-fallback");
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e as BeforeInstallPromptEvent;
+    if (installBtn) {
+      installBtn.hidden = false;
+      if (fallbackMsg) fallbackMsg.hidden = true;
+    }
+  });
+
+  installBtn?.addEventListener("click", async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") installBtn.textContent = "Installing…";
+    deferredPrompt = null;
+  });
+
+  // If already installed, hide the whole section
+  window.addEventListener("appinstalled", () => {
+    document.querySelector(".app-band")?.remove();
   });
 </script>
 
@@ -1059,6 +1163,101 @@ const homepageSchema = [
     font-family: var(--font-display);
     font-weight: 700;
     flex-shrink: 0;
+  }
+
+  /* ---------- Get the App ---------- */
+  .app-band { background: linear-gradient(135deg, #0f5236 0%, #16704a 100%); border-radius: var(--radius); padding: 3rem 2rem; }
+  .app-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: center; }
+  .app-copy .kicker { color: rgba(255,255,255,0.65); }
+  .app-copy h2 { color: #fff; margin-bottom: 0.75rem; }
+  .app-copy .muted { color: rgba(255,255,255,0.7); }
+  .install-steps {
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .install-steps li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: rgba(255,255,255,0.85);
+    font-size: 0.95rem;
+  }
+  .install-steps strong { color: #fff; }
+  .step-num {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
+  }
+  .install-btn {
+    background: #fff;
+    color: var(--green);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .install-btn:hover { background: #f0f0f0; }
+  .install-fallback { font-size: 0.85rem; margin-top: 0.85rem; color: rgba(255,255,255,0.6) !important; }
+  .install-fallback strong { color: rgba(255,255,255,0.85); }
+
+  /* Phone mockup */
+  .app-visual { display: flex; justify-content: center; }
+  .phone-frame {
+    width: 200px;
+    background: #1a1a1a;
+    border-radius: 32px;
+    padding: 10px;
+    box-shadow: 0 32px 64px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.08);
+  }
+  .phone-screen {
+    background: var(--paper);
+    border-radius: 24px;
+    padding: 14px 12px;
+    min-height: 340px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .phone-status-bar { width: 60px; height: 4px; background: #ccc; border-radius: 4px; margin-bottom: 4px; }
+  .phone-app-icon img { border-radius: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .phone-app-name { font-family: var(--font-display); font-weight: 700; font-size: 0.85rem; margin: 0; color: var(--ink); }
+  .phone-chips { display: flex; gap: 6px; }
+  .phone-chip { font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; }
+  .phone-chip.green { background: var(--green-soft); color: var(--green-ink); }
+  .phone-chip.amber { background: var(--amber-soft); color: #7a4a10; }
+  .phone-card-mock {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mock-avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(150deg, var(--green), var(--green-dk));
+    color: #fff; font-weight: 700; font-size: 0.75rem;
+    display: grid; place-items: center;
+  }
+  .mock-info { flex: 1; min-width: 0; }
+  .mock-info strong { display: block; font-size: 0.65rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-info span { font-size: 0.58rem; color: var(--ink-2); }
+  .mock-badge { font-size: 0.58rem; font-weight: 700; background: var(--green-soft); color: var(--green-ink); padding: 2px 6px; border-radius: 99px; white-space: nowrap; }
+  .phone-home-bar { width: 60px; height: 4px; background: rgba(255,255,255,0.25); border-radius: 4px; margin: 8px auto 2px; }
+  @media (max-width: 700px) {
+    .app-inner { grid-template-columns: 1fr; }
+    .app-visual { display: none; }
   }
 
   /* ---------- FAQ ---------- */
