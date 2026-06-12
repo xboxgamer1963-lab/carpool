@@ -12,7 +12,6 @@ const isProtectedRoute = createRouteMatcher([
   "/api/requests/create",
   "/api/requests/close",
   "/api/requests/renew",
-  "/api/ratings/submit",
 ]);
 
 export const onRequest = clerkMiddleware((auth, context) => {

@@ -13,6 +13,8 @@ if (!driver) {
 
 const { userId } = Astro.locals.auth();
 const isOwner = userId === driver.ownerId;
+// For signed-in users check existing rating server-side; anonymous users are
+// checked client-side via localStorage so we don't block the page render.
 const existingRating = userId && !isOwner
   ? await getExistingRating(driver.id, userId).catch(() => null)
   : null;
@@ -132,9 +134,13 @@ const genderLabel =
           <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
           <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
         </svg>
-        Share your open seats
+        {isOwner ? "Share your open seats" : "Know someone on this route?"}
       </h2>
-      <p class="share-sub muted">Send this to your contacts, neighbourhood group or social feed.</p>
+      <p class="share-sub muted">
+        {isOwner
+          ? "Send this to your contacts, neighbourhood group or social feed."
+          : "Share this ride with someone who might need it — no sign-in required."}
+      </p>
 
       <!-- Message preview -->
       <div class="message-preview" id="msg-preview">
@@ -238,13 +244,17 @@ const genderLabel =
           <p class="muted no-ratings">No ratings yet — be the first.</p>
         )}
 
-        {/* Rate form — signed-in non-owners only */}
-        {justRated ? (
+        {/* Rate form — everyone except the owner */}
+        {isOwner ? null : justRated ? (
           <p class="rated-thanks">Thanks for rating!</p>
-        ) : userId && !isOwner ? (
-          <form method="POST" action="/api/ratings/submit" class="rate-form">
+        ) : (
+          <form method="POST" action="/api/ratings/submit" class="rate-form" id="rate-form">
             <input type="hidden" name="driverId" value={driver.id} />
-            <p class="rate-label">{existingRating ? "Update your rating:" : "Rate this driver:"}</p>
+            {/* visitorId injected by client script for anonymous users */}
+            <input type="hidden" name="visitorId" id="visitor-id-field" value="" />
+            <p class="rate-label" id="rate-label">
+              {existingRating ? "Update your rating:" : "Rate this driver:"}
+            </p>
             <div class="star-picker" role="group" aria-label="Star rating">
               {[1,2,3,4,5].map(n => (
                 <label class="star-label">
@@ -267,11 +277,7 @@ const genderLabel =
               {existingRating ? "Update rating" : "Submit rating"}
             </button>
           </form>
-        ) : !userId ? (
-          <p class="muted rate-signin">
-            <a href="/sign-in">Sign in</a> to leave a rating.
-          </p>
-        ) : null}
+        )}
       </div>
     </aside>
   </div>
@@ -285,6 +291,42 @@ const genderLabel =
 </Layout>
 
 <script>
+  // ── Anonymous visitor ID for ratings ──────────────────────────────────────
+  // Generate (or reuse) a UUID stored in localStorage so anonymous users can
+  // rate without signing in, and we can detect if they already rated this driver.
+  const driverIdEl = document.querySelector<HTMLInputElement>('input[name="driverId"]');
+  const driverId = driverIdEl?.value ?? "";
+  const STORAGE_KEY = `rated_${driverId}`;
+  const rateForm = document.getElementById("rate-form") as HTMLFormElement | null;
+  const rateLabel = document.getElementById("rate-label");
+  const visitorField = document.getElementById("visitor-id-field") as HTMLInputElement | null;
+
+  if (rateForm && visitorField) {
+    // Get or create visitor id
+    let vid = localStorage.getItem("carpool_visitor_id");
+    if (!vid) {
+      vid = crypto.randomUUID();
+      localStorage.setItem("carpool_visitor_id", vid);
+    }
+    visitorField.value = vid;
+
+    // If this visitor already rated this driver (tracked locally), show update label
+    const prevStars = localStorage.getItem(STORAGE_KEY);
+    if (prevStars && rateLabel) {
+      rateLabel.textContent = "Update your rating:";
+      // Pre-select the previously chosen star
+      const prevN = parseInt(prevStars, 10);
+      const radio = rateForm.querySelector<HTMLInputElement>(`input[name="stars"][value="${prevN}"]`);
+      if (radio) radio.checked = true;
+    }
+
+    // On submit, save their choice to localStorage
+    rateForm.addEventListener("submit", () => {
+      const checked = rateForm.querySelector<HTMLInputElement>('input[name="stars"]:checked');
+      if (checked) localStorage.setItem(STORAGE_KEY, checked.value);
+    });
+  }
+
   // Native share API (mobile)
   const nativeBtn = document.getElementById("native-share-btn") as HTMLButtonElement | null;
   if (nativeBtn && navigator.share) {
